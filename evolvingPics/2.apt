@@ -1,0 +1,5 @@
+( Picture 
+ ( FBM Y X X )
+ X
+ ( SimplexNoise ( / ( Negate ( * ( Sin Y ) ( Log2 ( Sin Y ) )) ) ( Atan2 ( SimplexNoise ( Atan2 Y X ) ( Atan2 0.110223293 ( Sin ( FBM X X X ) ) ) ) Y ) ) ( - ( Abs ( + ( Atan ( Atan2 X -0.228901148 ) ) ( Atan2 X X ) ) ) ( Square ( Ceil ( Wrap -0.711789250 ) ) ) ) )
+)

@@ -1,0 +1,5 @@
+( Picture 
+ ( Lerp ( Sin ( Wrap ( + ( - X -0.837739587 ) X ) ) ) ( Abs 0.982365727 ) ( Floor ( Ceil ( / X X ) ) ) )
+ ( Clip ( Cos ( / 0.090945363 ( Atan ( Clip -0.264894187 ( FBM Y Y Y ) ) ) ) ) ( Ceil ( Cos ( Ceil Y ) ) ) )
+ ( Log2 ( Ceil ( + ( Log2 -0.657929420 ) ( + ( * -0.267775059 ( - X ( FBM 0.231080770 X X ) )) ( Wrap ( * X X) ) ) ) ) )
+)

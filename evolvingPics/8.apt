@@ -1,0 +1,5 @@
+( Picture 
+ ( Atan ( Turbulence -0.835022628 ( Abs ( * Y ( Log2 0.676353812 )) ) -0.888266683 ) )
+ ( SimplexNoise ( Atan ( / ( Negate ( Floor ( Clip ( Wrap X ) Y ) ) ) ( Ceil ( / ( - X X ) ( Square 0.294464946 ) ) ) ) ) ( Floor ( Abs ( * ( Square ( SimplexNoise 0.356903911 X ) ) ( SimplexNoise ( Cos X ) ( Sin 0.127100468 ) )) ) ) )
+ ( SimplexNoise ( Abs ( / ( Cos ( Atan ( Negate ( Ceil ( Lerp ( Cos X ) ( Atan2 0.673409104 X ) X ) ) ) ) ) ( Wrap ( + ( Sin ( Square Y ) ) ( Sin ( + ( Ceil X ) Y ) ) ) ) ) ) ( Abs ( Sin ( Log2 ( Atan2 0.371760726 X ) ) ) ) )
+)

@@ -1,0 +1,5 @@
+( Picture 
+ ( FBM  ( /  ( / Y Y )  ( Atan2 ( FBM 0.685865641 X Y ) ( Turbulence X 0.935234547  ( * Y Y ) )) )( Cos X) ( - ( Turbulence 0.554892182 ( SimplexNoise ( Lerp X X X ) ( FBM 0.416665792 X X ) ) ( Sin ( SimplexNoise 0.952344298 ( Sin X) )) )  ( +  ( Atan2 ( Sin X) X) ( FBM -0.765686512 Y Y ) ) ) )
+  ( +  ( Atan2  ( * X X ) ( Atan  ( / 0.402866244 ( Turbulence -0.125682950 X Y ) ))) ( SimplexNoise ( SimplexNoise ( Sin 0.766384244) -0.865700901 ) 0.176849604 ) )
+  ( +  ( + X  ( * ( Sin Y) Y ) ) ( Atan  ( * 0.943598270 -0.281262934 )) )
+)

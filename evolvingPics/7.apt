@@ -1,0 +1,5 @@
+( Picture 
+ ( + X X )
+ ( Clip ( Cos ( / 0.090945363 ( Atan ( Clip -0.264894187 ( FBM Y Y Y ) ) ) ) ) ( Ceil ( Cos ( Ceil Y ) ) ) )
+ ( Ceil X )
+)

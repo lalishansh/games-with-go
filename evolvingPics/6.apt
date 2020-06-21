@@ -1,0 +1,5 @@
+( Picture 
+ X
+ ( Square ( Lerp ( SimplexNoise ( - ( Wrap X ) -0.101221383 ) ( Sin ( FBM ( FBM Y X Y ) X X ) ) ) ( - ( FBM Y X X ) 0.205665708 ) ( Atan ( Sin X ) ) ) )
+ ( FBM ( Abs ( Abs ( Log2 ( Turbulence ( Turbulence Y 0.127030730 0.239778876 ) ( Lerp X X -0.362879455 ) Y ) ) ) ) ( Wrap ( - ( Ceil ( Wrap ( Cos ( + X Y ) ) ) ) X ) ) ( Turbulence ( Atan -0.201649606 ) ( / X Y ) ( Floor ( FBM X X X ) ) ) )
+)

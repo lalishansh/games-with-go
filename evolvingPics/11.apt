@@ -1,0 +1,5 @@
+( Picture 
+ ( Ceil ( Atan2 ( / ( Log2 ( Abs -0.216242552 ) ) ( FBM ( + X Y ) ( Clip Y X ) ( + X 0.573543668 ) ) ) ( - ( Lerp Y ( Lerp Y Y -0.370364368 ) ( Turbulence -0.824316680 ( Atan2 0.470443368 0.370790005 ) Y ) ) ( Log2 ( Turbulence Y ( Ceil -0.854628444 ) ( Cos 0.412568808 ) ) ) ) ) )
+ ( Ceil ( Cos ( Lerp ( - ( Negate ( Sin 0.753513694 ) ) ( Log2 ( + ( Floor Y ) Y ) ) ) ( Clip ( Square ( Log2 -0.565602541 ) ) ( Abs 0.122362137 ) ) ( Turbulence ( Negate -0.206941128 ) ( - ( Negate -0.782496214 ) X ) -0.092947423 ) ) ) )
+ ( Floor ( / ( Clip ( SimplexNoise X ( Negate X ) ) ( - ( * Y -0.233981013) ( Atan X ) ) ) ( / ( + ( Atan ( Cos Y ) ) 0.884238124 ) ( Lerp ( Ceil 0.248441696 ) ( Wrap 0.850867510 ) ( Wrap Y ) ) ) ) )
+)
