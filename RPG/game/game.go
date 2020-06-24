@@ -8,6 +8,22 @@ import (
 
 type GameUI interface {
 	Draw(*Level)
+	GetInput() *Input
+}
+type InputType int
+
+const (
+	Quit InputType = iota
+	Up
+	Down
+	Left
+	Right
+	Open
+	Blank
+)
+
+type Input struct {
+	Typ InputType
 }
 
 type Tile rune
@@ -15,14 +31,20 @@ type Tile rune
 const (
 	StoneWall Tile = '#'
 	DirtFloor Tile = '.'
-	Door      Tile = '|'
+	CloseDoor Tile = '|'
+	OpenDoor  Tile = '/'
 	Void      Tile = ' '
 	Player    Tile = 'P'
 )
 
 //Level infor. for game
 type Level struct {
-	Map [][]Tile
+	Map    [][]Tile
+	Player Entity
+}
+type Entity struct {
+	Symbol Tile
+	X, Y   int32
 }
 
 //loadLvlFromFile will try to load level provided from "game/maps/" folder
@@ -59,17 +81,50 @@ func loadLvlFromFile(filNam string) (lvl *Level) {
 			case '.':
 				t = DirtFloor
 			case '|':
-				t = Door
+				t = CloseDoor
+			case '/':
+				t = CloseDoor
 			default:
 				panic("undefined charecter in map")
 			}
 			level.Map[y][x] = t
 		}
-
 	}
+	level.Player.X, level.Player.Y, level.Player.Symbol = 84, 84, 'P'
 	return level
 }
 func Run(ui GameUI) {
 	level := loadLvlFromFile("level1.map")
-	ui.Draw(level)
+	for {
+		ui.Draw(level)
+		input := ui.GetInput()
+		p := level.Player
+		if (*input).Typ == Quit {
+			return
+		} else if (*input).Typ == Up && (level.Map[int((p.Y-2)/32)][int((p.X+18)/32)] == DirtFloor || level.Map[int((p.Y-2)/32)][int((p.X+18)/32)] == OpenDoor) {
+			level.Player.Y--
+		} else if (*input).Typ == Down && (level.Map[int((p.Y+2)/32)+1][int((p.X+18)/32)] == DirtFloor || level.Map[int((p.Y+2)/32)+1][int((p.X+18)/32)] == OpenDoor) {
+			level.Player.Y++
+		} else if (*input).Typ == Right && (level.Map[int((p.Y+18)/32)][int((p.X+2)/32)+1] == DirtFloor || level.Map[int((p.Y+18)/32)][int((p.X+2)/32)+1] == OpenDoor) {
+			level.Player.X++
+		} else if (*input).Typ == Left && (level.Map[int((p.Y+18)/32)][int((p.X-2)/32)] == DirtFloor || level.Map[int((p.Y+18)/32)][int((p.X-2)/32)] == OpenDoor) {
+			level.Player.X--
+		} else {
+			LevelManager(level, input)
+		}
+	}
+}
+func LevelManager(level *Level, input *Input) {
+	p := level.Player
+	if input.Typ == Open {
+		if level.Map[int((p.Y-2)/32)][int((p.X+18)/32)] == CloseDoor {
+			level.Map[int((p.Y-2)/32)][int((p.X+18)/32)] = OpenDoor
+		} else if level.Map[int((p.Y+2)/32)+1][int((p.X+18)/32)] == CloseDoor {
+			level.Map[int((p.Y+2)/32)+1][int((p.X+18)/32)] = OpenDoor
+		} else if level.Map[int((p.Y+18)/32)][int((p.X+2)/32)+1] == CloseDoor {
+			level.Map[int((p.Y+18)/32)][int((p.X+2)/32)+1] = OpenDoor
+		} else if level.Map[int((p.Y+18)/32)][int((p.X-2)/32)] == CloseDoor {
+			level.Map[int((p.Y+18)/32)][int((p.X-2)/32)] = OpenDoor
+		}
+	}
 }

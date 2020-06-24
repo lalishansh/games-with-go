@@ -11,6 +11,14 @@ import (
 	"strings"
 )
 
+var zoom int32 = 2
+var centerX, centerY int32
+
+const winWidht, winHeight = 1280, 700
+
+var renderer *sdl.Renderer
+var tex *sdl.Texture
+
 type MouseState struct {
 	Left, Right        bool
 	ChangedL, ChangedR bool
@@ -20,8 +28,6 @@ type KeyStates struct {
 	IsDown  bool
 	Changed bool
 }
-
-var zoom float32 = 1
 
 func (m *MouseState) ProcessMouse() {
 	x, y, mouse := sdl.GetMouseState()
@@ -53,11 +59,6 @@ func ProcessKeys(kb *[]KeyStates) {
 	}
 }
 
-const winWidht, winHeight = 1280, 700
-
-var renderer *sdl.Renderer
-var tex *sdl.Texture
-
 var mouse MouseState
 var keyBoard []KeyStates
 
@@ -70,15 +71,6 @@ type SpriteTexture struct {
 	len, bth int32
 }
 
-type Entity struct {
-	x, y int
-}
-type Player struct {
-	Entity
-	Texture *sdl.Texture
-}
-
-var Player1 Player
 var textureAtlas *[]SpriteTexture
 var MiniAtlas *[]SpriteTexture
 
@@ -139,7 +131,6 @@ func SpriteOpener(renderer *sdl.Renderer, str string, lenPerSprite, widPerSprite
 			}
 		}
 	}
-
 	return &spriteArray
 }
 func imgToTex(renderer *sdl.Renderer, pixels []byte, w, h int) *sdl.Texture {
@@ -176,12 +167,9 @@ func init() {
 	textureAtlas = SpriteOpener(renderer, "UI2d/assets/tiles.png", 32, 32, 6042)
 	MiniAtlas = idexAssignerToAtlas()
 
-	Player1.x, Player1.y = 84, 84
-	Player1.Texture = (*textureAtlas)[59*64+25].tex
-
 	keyBoard = make([]KeyStates, len(sdl.GetKeyboardState()))
-	UpdateKeys()
-
+	mouse.ProcessMouse()
+	ProcessKeys(&keyBoard)
 }
 func idexAssignerToAtlas() *[]SpriteTexture {
 	file, err := os.Open("UI2d/assets/tileSymbol-Index.txt")
@@ -218,31 +206,33 @@ func idexAssignerToAtlas() *[]SpriteTexture {
 	}
 	return &newAtlas
 }
-func UpdateKeys() {
-	mouse.ProcessMouse()
-	ProcessKeys(&keyBoard)
-}
-func UpdatePlayer(level *game.Level) {
-	//if level.Map[int(Player1.y/(32*zoom))][int(Player1.x/(32*zoom))]=='.'{
-	//}
-	if keyBoard[sdl.SCANCODE_DOWN].IsDown {
-		Player1.y += 1
-	} else if keyBoard[sdl.SCANCODE_UP].IsDown {
-		Player1.y -= 1
-	} else if keyBoard[sdl.SCANCODE_RIGHT].IsDown {
-		Player1.x += 1
-	} else if keyBoard[sdl.SCANCODE_LEFT].IsDown {
-		Player1.x -= 1
-	}
-}
 
 //Draw to draw over screen
 func (ui *UI2d) Draw(level *game.Level) {
-	UpdateKeys()
+	if (level.Player.X*zoom - centerX) > (winWidht/2 + 64*zoom) {
+		centerX += zoom
+	} else if (level.Player.X*zoom - centerX) < (winWidht/2 - 64*zoom) {
+		centerX -= zoom
+	} else if (level.Player.X*zoom - centerX) > (winWidht / 2) {
+		centerX++
+	} else if (level.Player.X*zoom - centerX) < (winWidht / 2) {
+		centerX--
+	}
+	if (level.Player.Y*zoom - centerY) > (winHeight/2 + 55*zoom) {
+		centerY += zoom
+	} else if (level.Player.Y*zoom - centerY) < (winHeight/2 - 55*zoom) {
+		centerY -= zoom
+	} else if (level.Player.Y*zoom - centerY) > (winHeight / 2) {
+		centerY++
+	} else if (level.Player.Y*zoom - centerY) < (winHeight / 2) {
+		centerY--
+	}
+	renderer.Clear()
+	rand.Seed(1)
 	for y, row := range level.Map {
 		var r int
 		for x, tile := range row {
-			dstRect := sdl.Rect{int32(x * 32), int32(y * 32), 32, 32}
+			dstRect := sdl.Rect{int32(x*32)*zoom - centerX, int32(y*32)*zoom - centerY, 32 * zoom, 32 * zoom}
 			for t := range *MiniAtlas {
 				if tile == (*MiniAtlas)[t].symbol {
 					r = rand.Intn((*MiniAtlas)[t].varCount)
@@ -252,11 +242,34 @@ func (ui *UI2d) Draw(level *game.Level) {
 			}
 		}
 	}
-	UpdatePlayer(level)
-	if keyBoard[sdl.SCANCODE_ESCAPE].IsDown && keyBoard[sdl.SCANCODE_ESCAPE].Changed {
-		return
+	for t := range *MiniAtlas {
+		if level.Player.Symbol == (*MiniAtlas)[t].symbol {
+			renderer.Copy((*MiniAtlas)[t].tex, nil, &sdl.Rect{level.Player.X*zoom - centerX, level.Player.Y*zoom - centerY, 32 * zoom, 32 * zoom})
+			break
+		}
 	}
-	sdl.Delay(100)
-	renderer.Copy(Player1.Texture, nil, &sdl.Rect{int32(Player1.x), int32(Player1.y), 32, 32})
 	renderer.Present()
+}
+func (ui *UI2d) GetInput() *game.Input {
+	mouse.ProcessMouse()
+	ProcessKeys(&keyBoard)
+	for event := sdl.PollEvent(); event != nil; event = sdl.PollEvent() {
+		switch event.(type) {
+		case *sdl.QuitEvent:
+			return &game.Input{Typ: game.Quit}
+		}
+	}
+	input := &game.Input{Typ: game.Blank}
+	if keyBoard[sdl.SCANCODE_DOWN].IsDown {
+		input = &game.Input{Typ: game.Down}
+	} else if keyBoard[sdl.SCANCODE_UP].IsDown {
+		input = &game.Input{Typ: game.Up}
+	} else if keyBoard[sdl.SCANCODE_LEFT].IsDown {
+		input = &game.Input{Typ: game.Left}
+	} else if keyBoard[sdl.SCANCODE_RIGHT].IsDown {
+		input = &game.Input{Typ: game.Right}
+	} else if keyBoard[sdl.SCANCODE_O].Changed && keyBoard[sdl.SCANCODE_O].IsDown {
+		input = &game.Input{Typ: game.Open}
+	}
+	return input
 }
