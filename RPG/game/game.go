@@ -7,7 +7,6 @@ import (
 	"bufio"
 	"math"
 	"os"
-	"sort"
 )
 
 type GameUI interface {
@@ -55,15 +54,8 @@ type Entity struct {
 type Pos struct {
 	X, Y int32
 }
-type priorityPos struct {
-	Pos
-	priority int
-}
-type priorityArray []priorityPos
 
-func (a priorityArray) Len() int           { return len(a) }
-func (a priorityArray) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
-func (a priorityArray) Less(i, j int) bool { return a[i].priority < a[j].priority }
+type priorityArray []priorityPos
 
 //loadLvlFromFile will try to load level provided from "game/maps/" folder
 func loadLvlFromFile(filNam string) (lvl *Level) {
@@ -165,21 +157,20 @@ func bfs(ui GameUI, level *Level, start Pos) {
 func astar(ui GameUI, lvl *Level, start Pos, goal Pos) []Pos {
 	start = Pos{int32(start.X / 32), int32(start.Y / 32)}
 	goal = Pos{int32(goal.X / 32), int32(goal.Y / 32)}
-	frontier := make(priorityArray, 0, 8)
-	frontier = append(frontier, priorityPos{start, 1})
+	frontier := make(pqueue, 0, 8)
+	frontier = frontier.push(start, 1)
 	cameFrom := make(map[Pos]Pos)
 	cameFrom[start] = start
 	costSoFar := make(map[Pos]int)
 	costSoFar[start] = 0
 	lvl.Debug = make(map[Pos]bool)
+	var current Pos
 	for len(frontier) > 0 {
-		sort.Stable(frontier) //slow priority queue,make a real one
-		current := frontier[0]
-		if current.Pos == goal {
+		frontier, current = frontier.pop()
+		if current == goal {
 			path := make([]Pos, 0)
-			p := current.Pos
+			p := current
 			for p != start {
-				fmt.Println(p)
 				path = append(path, p)
 				p = cameFrom[p]
 			}
@@ -188,6 +179,7 @@ func astar(ui GameUI, lvl *Level, start Pos, goal Pos) []Pos {
 			for i, j := 0, len(path)-1; i < j; i, j = i+1, j-1 {
 				path[i], path[j] = path[j], path[i]
 			}
+			lvl.Debug = make(map[Pos]bool)
 			for _, pos := range path {
 				lvl.Debug[pos] = true
 				ui.Draw(lvl)
@@ -195,17 +187,19 @@ func astar(ui GameUI, lvl *Level, start Pos, goal Pos) []Pos {
 			}
 			return path
 		}
-		frontier = frontier[1:]
-		for _, nxt := range getNeighbours(lvl, current.Pos) {
-			newCost := costSoFar[current.Pos] + 1 //always 1 for now
+		for _, nxt := range getNeighbours(lvl, current) {
+			newCost := costSoFar[current] + 1 //always 1 for now
 			_, exists := costSoFar[nxt]
 			if !exists || newCost < costSoFar[nxt] {
 				costSoFar[nxt] = newCost
 				xDist := int(math.Abs(float64(goal.X - nxt.X)))
 				yDist := int(math.Abs(float64(goal.Y - nxt.Y)))
 				priority := newCost + xDist + yDist
-				frontier = append(frontier, priorityPos{nxt, priority})
-				cameFrom[nxt] = current.Pos
+				frontier = frontier.push(nxt, priority)
+				lvl.Debug[nxt] = true
+				ui.Draw(lvl)
+				time.Sleep(100 * time.Millisecond)
+				cameFrom[nxt] = current
 			}
 		}
 	}

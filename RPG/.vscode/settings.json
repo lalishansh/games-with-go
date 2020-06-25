@@ -1,0 +1,6 @@
+{
+    "editor.formatOnType": true,
+    "editor.find.addExtraSpaceOnTop": false,
+    "terminal.integrated.fontWeightBold": "normal",
+    "editor.formatOnPaste": true
+}
