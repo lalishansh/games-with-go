@@ -2,6 +2,7 @@ package ui2d
 
 import (
 	"bufio"
+	"fmt"
 	"github.com/t-RED-69/games-with-go/RPG/game"
 	"github.com/veandco/go-sdl2/sdl"
 	"image/png"
@@ -11,7 +12,7 @@ import (
 	"strings"
 )
 
-var zoom int32 = 2
+var zoom int32 = 3
 var centerX, centerY int32
 
 const winWidht, winHeight = 1280, 700
@@ -210,18 +211,18 @@ func idexAssignerToAtlas() *[]SpriteTexture {
 //Draw to draw over screen
 func (ui *UI2d) Draw(level *game.Level) {
 	if (level.Player.X*zoom - centerX) > (winWidht/2 + 64*zoom) {
-		centerX += zoom
+		centerX += 3 * zoom
 	} else if (level.Player.X*zoom - centerX) < (winWidht/2 - 64*zoom) {
-		centerX -= zoom
+		centerX -= 3 * zoom
 	} else if (level.Player.X*zoom - centerX) > (winWidht / 2) {
 		centerX++
 	} else if (level.Player.X*zoom - centerX) < (winWidht / 2) {
 		centerX--
 	}
 	if (level.Player.Y*zoom - centerY) > (winHeight/2 + 55*zoom) {
-		centerY += zoom
+		centerY += 3 * zoom
 	} else if (level.Player.Y*zoom - centerY) < (winHeight/2 - 55*zoom) {
-		centerY -= zoom
+		centerY -= 3 * zoom
 	} else if (level.Player.Y*zoom - centerY) > (winHeight / 2) {
 		centerY++
 	} else if (level.Player.Y*zoom - centerY) < (winHeight / 2) {
@@ -233,9 +234,15 @@ func (ui *UI2d) Draw(level *game.Level) {
 		var r int
 		for x, tile := range row {
 			dstRect := sdl.Rect{int32(x*32)*zoom - centerX, int32(y*32)*zoom - centerY, 32 * zoom, 32 * zoom}
+			pos := game.Pos{int32(x), int32(y)}
 			for t := range *MiniAtlas {
 				if tile == (*MiniAtlas)[t].symbol {
 					r = rand.Intn((*MiniAtlas)[t].varCount)
+					if level.Debug[pos] {
+						(*MiniAtlas)[t+r].tex.SetColorMod(128, 0, 0)
+					} else {
+						(*MiniAtlas)[t+r].tex.SetColorMod(255, 255, 255)
+					}
 					renderer.Copy((*MiniAtlas)[t+r].tex, nil, &dstRect)
 					break
 				}
@@ -249,6 +256,7 @@ func (ui *UI2d) Draw(level *game.Level) {
 		}
 	}
 	renderer.Present()
+	sdl.Delay(10)
 }
 func (ui *UI2d) GetInput() *game.Input {
 	mouse.ProcessMouse()
@@ -270,6 +278,13 @@ func (ui *UI2d) GetInput() *game.Input {
 		input = &game.Input{Typ: game.Right}
 	} else if keyBoard[sdl.SCANCODE_O].Changed && keyBoard[sdl.SCANCODE_O].IsDown {
 		input = &game.Input{Typ: game.Open}
+	} else if keyBoard[sdl.SCANCODE_S].Changed && keyBoard[sdl.SCANCODE_S].IsDown {
+		fmt.Println("search")
+		input = &game.Input{Typ: game.Search}
+	} else if keyBoard[sdl.SCANCODE_KP_PLUS].Changed && keyBoard[sdl.SCANCODE_KP_PLUS].IsDown {
+		zoom++
+	} else if keyBoard[sdl.SCANCODE_KP_MINUS].Changed && keyBoard[sdl.SCANCODE_KP_MINUS].IsDown {
+		zoom--
 	}
 	return input
 }
