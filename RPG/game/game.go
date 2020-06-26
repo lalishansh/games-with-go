@@ -9,25 +9,38 @@ import (
 	"os"
 )
 
-type GameUI interface {
-	Draw(*Level)
-	GetInput() *Input
+type Game struct {
+	LevelChans []chan *Level
+	InputChan  chan *Input
+	Level      *Level
 }
+
+func NewGame(numWindows int, levelPath string) *Game {
+	levelChans := make([]chan *Level, numWindows)
+	for i := range levelChans {
+		levelChans[i] = make(chan *Level)
+	}
+	inputChan := make(chan *Input)
+	return &Game{levelChans, inputChan, loadLvlFromFile(levelPath)}
+}
+
 type InputType int
 
 const (
-	Quit InputType = iota
+	Blank InputType = iota
 	Up
 	Down
 	Left
 	Right
 	Open
-	Blank
+	QuitGame
+	CloseWindow
 	Search
 )
 
 type Input struct {
-	Typ InputType
+	Typ          InputType
+	LevelChannel chan *Level
 }
 
 type Tile rune
@@ -58,8 +71,8 @@ type Pos struct {
 type priorityArray []priorityPos
 
 //loadLvlFromFile will try to load level provided from "game/maps/" folder
-func loadLvlFromFile(filNam string) (lvl *Level) {
-	file, err := os.Open("game/maps/" + filNam)
+func loadLvlFromFile(filPth string) (lvl *Level) {
+	file, err := os.Open(filPth) //"game/maps/" + filNam)
 	if err != nil {
 		panic(err)
 	}
@@ -105,11 +118,6 @@ func loadLvlFromFile(filNam string) (lvl *Level) {
 }
 func getNeighbours(level *Level, pos Pos) []Pos {
 	neghbours := make([]Pos, 0, 4)
-	//
-	//left := Pos{pos.X - 16, pos.Y + 16}
-	//right := Pos{pos.X + 48, pos.Y + 16}
-	//up := Pos{pos.X + 16, pos.Y - 16}
-	//down := Pos{pos.X + 16, pos.Y + 48}
 	left := Pos{pos.X - 1, pos.Y}
 	right := Pos{pos.X + 1, pos.Y}
 	up := Pos{pos.X, pos.Y - 1}
@@ -133,13 +141,15 @@ func getNeighbours(level *Level, pos Pos) []Pos {
 func canSearch(level *Level, pos Pos) bool {
 	return (level.Map[int(pos.Y)][int(pos.X)] == DirtFloor || level.Map[int(pos.Y)][int(pos.X)] == OpenDoor)
 }
-func bfs(ui GameUI, level *Level, start Pos) {
+func (game *Game) bfs(start Pos) {
 	start = Pos{int32(start.X / 32), int32(start.Y / 32)}
+	level := game.Level
 	frontier := make([]Pos, 0, 8)
 	frontier = append(frontier, start)
 	visited := make(map[Pos]bool)
 	visited[start] = true
 	level.Debug = visited
+
 	for len(frontier) > 0 {
 		current := frontier[0]
 		frontier = frontier[1:]
@@ -147,16 +157,16 @@ func bfs(ui GameUI, level *Level, start Pos) {
 			if !visited[nxt] {
 				frontier = append(frontier, nxt)
 				visited[nxt] = true
-				ui.Draw(level)
 				time.Sleep(100 * time.Millisecond)
 			}
 		}
 	}
 }
 
-func astar(ui GameUI, lvl *Level, start Pos, goal Pos) []Pos {
+func (game *Game) astar(start Pos, goal Pos) []Pos {
 	start = Pos{int32(start.X / 32), int32(start.Y / 32)}
 	goal = Pos{int32(goal.X / 32), int32(goal.Y / 32)}
+	lvl := game.Level
 	frontier := make(pqueue, 0, 8)
 	frontier = frontier.push(start, 1)
 	cameFrom := make(map[Pos]Pos)
@@ -179,12 +189,11 @@ func astar(ui GameUI, lvl *Level, start Pos, goal Pos) []Pos {
 			for i, j := 0, len(path)-1; i < j; i, j = i+1, j-1 {
 				path[i], path[j] = path[j], path[i]
 			}
-			lvl.Debug = make(map[Pos]bool)
-			for _, pos := range path {
-				lvl.Debug[pos] = true
-				ui.Draw(lvl)
-				time.Sleep(100 * time.Millisecond)
-			}
+			//lvl.Debug = make(map[Pos]bool)
+			//for _, pos := range path {
+			//	lvl.Debug[pos] = true
+			//	time.Sleep(100 * time.Millisecond)
+			//}
 			return path
 		}
 		for _, nxt := range getNeighbours(lvl, current) {
@@ -196,51 +205,62 @@ func astar(ui GameUI, lvl *Level, start Pos, goal Pos) []Pos {
 				yDist := int(math.Abs(float64(goal.Y - nxt.Y)))
 				priority := newCost + xDist + yDist
 				frontier = frontier.push(nxt, priority)
-				lvl.Debug[nxt] = true
-				ui.Draw(lvl)
-				time.Sleep(100 * time.Millisecond)
+				//lvl.Debug[nxt] = true
 				cameFrom[nxt] = current
 			}
 		}
 	}
 	return nil
 }
-func Run(ui GameUI) {
+func (game *Game) Run() {
 	fmt.Println("Starting...")
-	level := loadLvlFromFile("level1.map")
-	for {
-		ui.Draw(level)
-		input := ui.GetInput()
-		p := level.Player
-		if (*input).Typ == Quit {
+	for i := range game.LevelChans {
+		game.LevelChans[i] <- game.Level
+	}
+	for input := range game.InputChan {
+		if input.Typ == QuitGame {
 			return
-		} else if (*input).Typ == Up && (level.Map[int((p.Y-2)/32)][int((p.X+18)/32)] == DirtFloor || level.Map[int((p.Y-2)/32)][int((p.X+18)/32)] == OpenDoor) {
-			level.Player.Y -= 3
-		} else if (*input).Typ == Down && (level.Map[int((p.Y+2)/32)+1][int((p.X+18)/32)] == DirtFloor || level.Map[int((p.Y+2)/32)+1][int((p.X+18)/32)] == OpenDoor) {
-			level.Player.Y += 3
-		} else if (*input).Typ == Right && (level.Map[int((p.Y+18)/32)][int((p.X+2)/32)+1] == DirtFloor || level.Map[int((p.Y+18)/32)][int((p.X+2)/32)+1] == OpenDoor) {
-			level.Player.X += 3
-		} else if (*input).Typ == Left && (level.Map[int((p.Y+18)/32)][int((p.X-2)/32)] == DirtFloor || level.Map[int((p.Y+18)/32)][int((p.X-2)/32)] == OpenDoor) {
-			level.Player.X -= 3
-		} else {
-			LevelManager(level, input, ui)
+		}
+		game.LevelManager(input)
+		if len(game.LevelChans) == 0 {
+			return
+		}
+		for _, lchan := range game.LevelChans {
+			lchan <- game.Level
 		}
 	}
 }
-func LevelManager(level *Level, input *Input, ui GameUI) {
-	p := level.Player
-	if input.Typ == Open {
-		if level.Map[int((p.Y-2)/32)][int((p.X+18)/32)] == CloseDoor {
-			level.Map[int((p.Y-2)/32)][int((p.X+18)/32)] = OpenDoor
-		} else if level.Map[int((p.Y+2)/32)+1][int((p.X+18)/32)] == CloseDoor {
-			level.Map[int((p.Y+2)/32)+1][int((p.X+18)/32)] = OpenDoor
-		} else if level.Map[int((p.Y+18)/32)][int((p.X+2)/32)+1] == CloseDoor {
-			level.Map[int((p.Y+18)/32)][int((p.X+2)/32)+1] = OpenDoor
-		} else if level.Map[int((p.Y+18)/32)][int((p.X-2)/32)] == CloseDoor {
-			level.Map[int((p.Y+18)/32)][int((p.X-2)/32)] = OpenDoor
+func (game Game) LevelManager(input *Input) {
+	p := game.Level.Player
+	if (*input).Typ == Up && (game.Level.Map[int((p.Y-2)/32)][int((p.X+18)/32)] == DirtFloor || game.Level.Map[int((p.Y-2)/32)][int((p.X+18)/32)] == OpenDoor) {
+		game.Level.Player.Y -= 3
+	} else if (*input).Typ == Down && (game.Level.Map[int((p.Y+2)/32)+1][int((p.X+18)/32)] == DirtFloor || game.Level.Map[int((p.Y+2)/32)+1][int((p.X+18)/32)] == OpenDoor) {
+		game.Level.Player.Y += 3
+	} else if (*input).Typ == Right && (game.Level.Map[int((p.Y+18)/32)][int((p.X+2)/32)+1] == DirtFloor || game.Level.Map[int((p.Y+18)/32)][int((p.X+2)/32)+1] == OpenDoor) {
+		game.Level.Player.X += 3
+	} else if (*input).Typ == Left && (game.Level.Map[int((p.Y+18)/32)][int((p.X-2)/32)] == DirtFloor || game.Level.Map[int((p.Y+18)/32)][int((p.X-2)/32)] == OpenDoor) {
+		game.Level.Player.X -= 3
+	} else if input.Typ == Open {
+		if game.Level.Map[int((p.Y-2)/32)][int((p.X+18)/32)] == CloseDoor {
+			game.Level.Map[int((p.Y-2)/32)][int((p.X+18)/32)] = OpenDoor
+		} else if game.Level.Map[int((p.Y+2)/32)+1][int((p.X+18)/32)] == CloseDoor {
+			game.Level.Map[int((p.Y+2)/32)+1][int((p.X+18)/32)] = OpenDoor
+		} else if game.Level.Map[int((p.Y+18)/32)][int((p.X+2)/32)+1] == CloseDoor {
+			game.Level.Map[int((p.Y+18)/32)][int((p.X+2)/32)+1] = OpenDoor
+		} else if game.Level.Map[int((p.Y+18)/32)][int((p.X-2)/32)] == CloseDoor {
+			game.Level.Map[int((p.Y+18)/32)][int((p.X-2)/32)] = OpenDoor
 		}
 	} else if input.Typ == Search {
-		//bfs(ui, level, level.Player.Pos)
-		_ = astar(ui, level, level.Player.Pos, Pos{278, 200})
+		game.astar(p.Pos, Pos{278, 200})
+	} else if input.Typ == CloseWindow {
+		close(input.LevelChannel)
+		chanIndex := 0
+		for i, c := range game.LevelChans {
+			if c == input.LevelChannel {
+				chanIndex = i
+				break
+			}
+		}
+		game.LevelChans = append(game.LevelChans[:chanIndex], game.LevelChans[chanIndex+1:]...)
 	}
 }

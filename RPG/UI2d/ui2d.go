@@ -12,13 +12,51 @@ import (
 	"strings"
 )
 
-var zoom int32 = 3
-var centerX, centerY int32
+type ui struct {
+	winWidht, winHeight int32
+	renderer            *sdl.Renderer
+	window              *sdl.Window
+	tex                 *sdl.Texture
+	zoom                int32
+	centerX, centerY    int32
+	textureAtlas        *[]SpriteTexture
+	MiniAtlas           *[]SpriteTexture
+	mouse               MouseState
+	keyBoard            []KeyStates
+	r                   *rand.Rand
+	levelChan           chan *game.Level
+	inputChan           chan *game.Input
+}
 
-const winWidht, winHeight = 1280, 700
+func NewUI(inputChan chan *game.Input, levelChan chan *game.Level) *ui {
+	ui := &ui{}
+	ui.winWidht, ui.winHeight = 1280, 720
+	ui.zoom = 3
+	ui.inputChan = inputChan
+	ui.levelChan = levelChan
+	ui.r = rand.New(rand.NewSource(1))
+	window, err := sdl.CreateWindow("RPG !!", int32(1366/2-ui.winWidht/2), int32(766/2-ui.winHeight/2), int32(ui.winWidht), int32(ui.winHeight), sdl.WINDOW_SHOWN)
+	if err != nil {
+		panic(err)
+	}
+	ui.window = window
+	//defer window.Destroy() //defer executes this statement after reaching the end of function/finishing the execution of funtion
+	//and we dont wanna destroy it
 
-var renderer *sdl.Renderer
-var tex *sdl.Texture
+	ui.renderer, err = sdl.CreateRenderer(ui.window, -1, sdl.RENDERER_ACCELERATED)
+	if err != nil {
+		panic(err)
+	}
+	sdl.SetHint(sdl.HINT_RENDER_SCALE_QUALITY, "1")
+
+	ui.textureAtlas = ui.SpriteOpener("UI2d/assets/tiles.png", 32, 32, 6042)
+	ui.MiniAtlas = ui.idexAssignerToAtlas()
+
+	ui.keyBoard = make([]KeyStates, len(sdl.GetKeyboardState()))
+	ui.mouse.ProcessMouse()
+	ProcessKeys(&ui.keyBoard)
+	return ui
+}
 
 type MouseState struct {
 	Left, Right        bool
@@ -60,9 +98,6 @@ func ProcessKeys(kb *[]KeyStates) {
 	}
 }
 
-var mouse MouseState
-var keyBoard []KeyStates
-
 //SpriteTexture cantains sprite's enum name,texture,default length and breadth for image
 type SpriteTexture struct {
 	symbol   game.Tile
@@ -72,11 +107,8 @@ type SpriteTexture struct {
 	len, bth int32
 }
 
-var textureAtlas *[]SpriteTexture
-var MiniAtlas *[]SpriteTexture
-
 //SpriteOpener to load specified number of sprite textures
-func SpriteOpener(renderer *sdl.Renderer, str string, lenPerSprite, widPerSprite int32, noOfSprites int) *[]SpriteTexture {
+func (ui *ui) SpriteOpener(str string, lenPerSprite, widPerSprite int32, noOfSprites int) *[]SpriteTexture {
 	inFile, err := os.Open(str)
 	if err != nil {
 		panic(err)
@@ -114,8 +146,7 @@ func SpriteOpener(renderer *sdl.Renderer, str string, lenPerSprite, widPerSprite
 					index++
 				}
 			}
-			//tex = imgToTex(renderer, pixels, lenPerSprite, widPerSprite)
-			tex, err = renderer.CreateTexture(sdl.PIXELFORMAT_ABGR8888, sdl.TEXTUREACCESS_STATIC, lenPerSprite, widPerSprite)
+			tex, err = ui.renderer.CreateTexture(sdl.PIXELFORMAT_ABGR8888, sdl.TEXTUREACCESS_STATIC, lenPerSprite, widPerSprite)
 			if err != nil {
 				panic(err)
 			}
@@ -134,45 +165,64 @@ func SpriteOpener(renderer *sdl.Renderer, str string, lenPerSprite, widPerSprite
 	}
 	return &spriteArray
 }
-func imgToTex(renderer *sdl.Renderer, pixels []byte, w, h int) *sdl.Texture {
-	tex, err := renderer.CreateTexture(sdl.PIXELFORMAT_ABGR8888, sdl.TEXTUREACCESS_STREAMING, int32(w), int32(h))
-	if err != nil {
-		panic(err)
-	}
-	tex.Update(nil, pixels, w*4)
-	return tex
-}
-
-type UI2d struct {
-}
 
 func init() {
-	sdl.LogSetAllPriority(sdl.LOG_PRIORITY_VERBOSE)
 	err := sdl.Init(sdl.INIT_EVERYTHING)
 	if err != nil {
-		panic(err)
+		fmt.Println(err)
+		return
 	}
-	window, err := sdl.CreateWindow("RPG !!", int32(1366/2-winWidht/2), int32(766/2-winHeight/2), int32(winWidht), int32(winHeight), sdl.WINDOW_SHOWN)
-	if err != nil {
-		panic(err)
-	}
-	//defer window.Destroy() //defer executes this statement after reaching the end of function/finishing the execution of funtion
-	//and we dont wanna destroy it
-
-	renderer, err = sdl.CreateRenderer(window, -1, sdl.RENDERER_ACCELERATED)
-	if err != nil {
-		panic(err)
-	}
-	sdl.SetHint(sdl.HINT_RENDER_SCALE_QUALITY, "1")
-
-	textureAtlas = SpriteOpener(renderer, "UI2d/assets/tiles.png", 32, 32, 6042)
-	MiniAtlas = idexAssignerToAtlas()
-
-	keyBoard = make([]KeyStates, len(sdl.GetKeyboardState()))
-	mouse.ProcessMouse()
-	ProcessKeys(&keyBoard)
 }
-func idexAssignerToAtlas() *[]SpriteTexture {
+
+//Draw to draw over screen
+func (ui *ui) Draw(level *game.Level) {
+	if (level.Player.X*ui.zoom - ui.centerX) > (ui.winWidht/2 + 64*ui.zoom) {
+		ui.centerX += 3 * ui.zoom
+	} else if (level.Player.X*ui.zoom - ui.centerX) < (ui.winWidht/2 - 64*ui.zoom) {
+		ui.centerX -= 3 * ui.zoom
+	} else if (level.Player.X*ui.zoom - ui.centerX) > (ui.winWidht / 2) {
+		ui.centerX++
+	} else if (level.Player.X*ui.zoom - ui.centerX) < (ui.winWidht / 2) {
+		ui.centerX--
+	}
+	if (level.Player.Y*ui.zoom - ui.centerY) > (ui.winHeight/2 + 55*ui.zoom) {
+		ui.centerY += 3 * ui.zoom
+	} else if (level.Player.Y*ui.zoom - ui.centerY) < (ui.winHeight/2 - 55*ui.zoom) {
+		ui.centerY -= 3 * ui.zoom
+	} else if (level.Player.Y*ui.zoom - ui.centerY) > (ui.winHeight / 2) {
+		ui.centerY++
+	} else if (level.Player.Y*ui.zoom - ui.centerY) < (ui.winHeight / 2) {
+		ui.centerY--
+	}
+
+	ui.renderer.Clear()
+	ui.r.Seed(1)
+	for y, row := range level.Map {
+		var r int
+		for x, tile := range row {
+			dstRect := sdl.Rect{int32(x*32)*ui.zoom - ui.centerX, int32(y*32)*ui.zoom - ui.centerY, 32 * ui.zoom, 32 * ui.zoom}
+			//pos := game.Pos{int32(x), int32(y)}
+			for t := range *ui.MiniAtlas {
+				if tile == (*ui.MiniAtlas)[t].symbol {
+					r = ui.r.Intn((*ui.MiniAtlas)[t].varCount)
+					ui.renderer.Copy((*ui.MiniAtlas)[t+r].tex, nil, &dstRect)
+					break
+				}
+			}
+		}
+	}
+	for t := range *ui.MiniAtlas {
+		if level.Player.Symbol == (*ui.MiniAtlas)[t].symbol {
+			ui.renderer.Copy((*ui.MiniAtlas)[t].tex, nil, &sdl.Rect{level.Player.X*ui.zoom - ui.centerX, level.Player.Y*ui.zoom - ui.centerY, 32 * ui.zoom, 32 * ui.zoom})
+
+			break
+		}
+	}
+	ui.renderer.Present()
+	sdl.Delay(10)
+}
+
+func (ui *ui) idexAssignerToAtlas() *[]SpriteTexture {
 	file, err := os.Open("UI2d/assets/tileSymbol-Index.txt")
 	if err != nil {
 		panic(err)
@@ -199,92 +249,64 @@ func idexAssignerToAtlas() *[]SpriteTexture {
 		}
 		var z int64
 		for z = 0; z < v; z++ {
-			(*textureAtlas)[y*64+(x+z)].symbol = tileRune
-			(*textureAtlas)[y*64+(x+z)].varCount = int(v)
-			(*textureAtlas)[y*64+(x+z)].index = int(z)
-			newAtlas = append(newAtlas, (*textureAtlas)[y*64+(x+z)])
+			(*ui.textureAtlas)[y*64+(x+z)].symbol = tileRune
+			(*ui.textureAtlas)[y*64+(x+z)].varCount = int(v)
+			(*ui.textureAtlas)[y*64+(x+z)].index = int(z)
+			newAtlas = append(newAtlas, (*ui.textureAtlas)[y*64+(x+z)])
 		}
 	}
 	return &newAtlas
 }
-
-//Draw to draw over screen
-func (ui *UI2d) Draw(level *game.Level) {
-	if (level.Player.X*zoom - centerX) > (winWidht/2 + 64*zoom) {
-		centerX += 3 * zoom
-	} else if (level.Player.X*zoom - centerX) < (winWidht/2 - 64*zoom) {
-		centerX -= 3 * zoom
-	} else if (level.Player.X*zoom - centerX) > (winWidht / 2) {
-		centerX++
-	} else if (level.Player.X*zoom - centerX) < (winWidht / 2) {
-		centerX--
-	}
-	if (level.Player.Y*zoom - centerY) > (winHeight/2 + 55*zoom) {
-		centerY += 3 * zoom
-	} else if (level.Player.Y*zoom - centerY) < (winHeight/2 - 55*zoom) {
-		centerY -= 3 * zoom
-	} else if (level.Player.Y*zoom - centerY) > (winHeight / 2) {
-		centerY++
-	} else if (level.Player.Y*zoom - centerY) < (winHeight / 2) {
-		centerY--
-	}
-	renderer.Clear()
-	rand.Seed(1)
-	for y, row := range level.Map {
-		var r int
-		for x, tile := range row {
-			dstRect := sdl.Rect{int32(x*32)*zoom - centerX, int32(y*32)*zoom - centerY, 32 * zoom, 32 * zoom}
-			pos := game.Pos{int32(x), int32(y)}
-			for t := range *MiniAtlas {
-				if tile == (*MiniAtlas)[t].symbol {
-					r = rand.Intn((*MiniAtlas)[t].varCount)
-					if level.Debug[pos] {
-						(*MiniAtlas)[t+r].tex.SetColorMod(128, 0, 0)
-					} else {
-						(*MiniAtlas)[t+r].tex.SetColorMod(255, 255, 255)
-					}
-					renderer.Copy((*MiniAtlas)[t+r].tex, nil, &dstRect)
-					break
+func (ui *ui) Run() {
+	var lvle *game.Level
+	for {
+		ui.mouse.ProcessMouse()
+		ProcessKeys(&ui.keyBoard)
+		for event := sdl.PollEvent(); event != nil; event = sdl.PollEvent() {
+			switch e := event.(type) {
+			case *sdl.QuitEvent:
+				ui.inputChan <- &game.Input{Typ: game.QuitGame}
+			case *sdl.WindowEvent:
+				if e.Event == sdl.WINDOWEVENT_CLOSE {
+					ui.inputChan <- &game.Input{Typ: game.CloseWindow, LevelChannel: ui.levelChan}
 				}
 			}
 		}
-	}
-	for t := range *MiniAtlas {
-		if level.Player.Symbol == (*MiniAtlas)[t].symbol {
-			renderer.Copy((*MiniAtlas)[t].tex, nil, &sdl.Rect{level.Player.X*zoom - centerX, level.Player.Y*zoom - centerY, 32 * zoom, 32 * zoom})
-			break
+		if lvle != nil {
+			ui.Draw(lvle)
 		}
-	}
-	renderer.Present()
-	sdl.Delay(10)
-}
-func (ui *UI2d) GetInput() *game.Input {
-	mouse.ProcessMouse()
-	ProcessKeys(&keyBoard)
-	for event := sdl.PollEvent(); event != nil; event = sdl.PollEvent() {
-		switch event.(type) {
-		case *sdl.QuitEvent:
-			return &game.Input{Typ: game.Quit}
+		select {
+		case newLevel, ok := <-ui.levelChan:
+			if ok {
+				ui.Draw(newLevel)
+				lvle = newLevel
+			}
+		default:
 		}
+		if sdl.GetKeyboardFocus() == ui.window || sdl.GetMouseFocus() == ui.window {
+			input := &game.Input{Typ: game.Blank}
+			if ui.keyBoard[sdl.SCANCODE_DOWN].IsDown {
+				input = &game.Input{Typ: game.Down}
+			} else if ui.keyBoard[sdl.SCANCODE_UP].IsDown {
+				input = &game.Input{Typ: game.Up}
+			} else if ui.keyBoard[sdl.SCANCODE_LEFT].IsDown {
+				input = &game.Input{Typ: game.Left}
+			} else if ui.keyBoard[sdl.SCANCODE_RIGHT].IsDown {
+				input = &game.Input{Typ: game.Right}
+			} else if ui.keyBoard[sdl.SCANCODE_O].Changed && ui.keyBoard[sdl.SCANCODE_O].IsDown {
+				input = &game.Input{Typ: game.Open}
+			} else if ui.keyBoard[sdl.SCANCODE_S].Changed && ui.keyBoard[sdl.SCANCODE_S].IsDown {
+				fmt.Println("search")
+				input = &game.Input{Typ: game.Search}
+			} else if ui.keyBoard[sdl.SCANCODE_KP_PLUS].Changed && ui.keyBoard[sdl.SCANCODE_KP_PLUS].IsDown {
+				ui.zoom++
+			} else if ui.keyBoard[sdl.SCANCODE_KP_MINUS].Changed && ui.keyBoard[sdl.SCANCODE_KP_MINUS].IsDown {
+				ui.zoom--
+			}
+			if input.Typ != game.Blank {
+				ui.inputChan <- input
+			}
+		}
+		sdl.Delay(10)
 	}
-	input := &game.Input{Typ: game.Blank}
-	if keyBoard[sdl.SCANCODE_DOWN].IsDown {
-		input = &game.Input{Typ: game.Down}
-	} else if keyBoard[sdl.SCANCODE_UP].IsDown {
-		input = &game.Input{Typ: game.Up}
-	} else if keyBoard[sdl.SCANCODE_LEFT].IsDown {
-		input = &game.Input{Typ: game.Left}
-	} else if keyBoard[sdl.SCANCODE_RIGHT].IsDown {
-		input = &game.Input{Typ: game.Right}
-	} else if keyBoard[sdl.SCANCODE_O].Changed && keyBoard[sdl.SCANCODE_O].IsDown {
-		input = &game.Input{Typ: game.Open}
-	} else if keyBoard[sdl.SCANCODE_S].Changed && keyBoard[sdl.SCANCODE_S].IsDown {
-		fmt.Println("search")
-		input = &game.Input{Typ: game.Search}
-	} else if keyBoard[sdl.SCANCODE_KP_PLUS].Changed && keyBoard[sdl.SCANCODE_KP_PLUS].IsDown {
-		zoom++
-	} else if keyBoard[sdl.SCANCODE_KP_MINUS].Changed && keyBoard[sdl.SCANCODE_KP_MINUS].IsDown {
-		zoom--
-	}
-	return input
 }
