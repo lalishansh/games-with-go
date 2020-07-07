@@ -3,13 +3,14 @@ package ui2d
 import (
 	"bufio"
 	"fmt"
-	"github.com/t-RED-69/games-with-go/RPG/game"
-	"github.com/veandco/go-sdl2/sdl"
 	"image/png"
 	"math/rand"
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/t-RED-69/games-with-go/RPG/game"
+	"github.com/veandco/go-sdl2/sdl"
 )
 
 type ui struct {
@@ -205,6 +206,15 @@ func (ui *ui) Draw(level *game.Level) {
 			for t := range *ui.MiniAtlas {
 				if tile == (*ui.MiniAtlas)[t].symbol {
 					r = ui.r.Intn((*ui.MiniAtlas)[t].varCount)
+					//if level.Debug[pos] {
+					//	(*ui.MiniAtlas)[t+r].tex.SetColorMod(128, 0, 0)
+					//} else {
+					//	(*ui.MiniAtlas)[t+r].tex.SetColorMod(255, 255, 255)
+					//}
+					switch tile {
+					case game.OpenDoor:
+						ui.renderer.Copy((*ui.MiniAtlas)[12].tex, nil, &dstRect)
+					}
 					ui.renderer.Copy((*ui.MiniAtlas)[t+r].tex, nil, &dstRect)
 					break
 				}
@@ -214,8 +224,16 @@ func (ui *ui) Draw(level *game.Level) {
 	for t := range *ui.MiniAtlas {
 		if level.Player.Symbol == (*ui.MiniAtlas)[t].symbol {
 			ui.renderer.Copy((*ui.MiniAtlas)[t].tex, nil, &sdl.Rect{level.Player.X*ui.zoom - ui.centerX, level.Player.Y*ui.zoom - ui.centerY, 32 * ui.zoom, 32 * ui.zoom})
-
 			break
+		}
+	}
+	for i := range level.Monsters {
+		dstRect := sdl.Rect{int32(level.Monsters[i].X)*ui.zoom - ui.centerX, int32(level.Monsters[i].Y)*ui.zoom - ui.centerY, 32 * ui.zoom, 32 * ui.zoom}
+		for t := range *ui.MiniAtlas {
+			if level.Monsters[i].Symbol == (*ui.MiniAtlas)[t].symbol {
+				ui.renderer.Copy((*ui.MiniAtlas)[t].tex, nil, &dstRect)
+				break
+			}
 		}
 	}
 	ui.renderer.Present()
