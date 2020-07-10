@@ -2,6 +2,7 @@ package game
 
 import (
 	"fmt"
+	"strconv"
 	"time"
 
 	//"github.com/veandco/go-sdl2/sdl"
@@ -15,6 +16,8 @@ type Game struct {
 	InputChan  chan *Input
 	Level      *Level
 }
+
+var lookDirn = Right
 
 func NewGame(numWindows int, levelPath string) *Game {
 	levelChans := make([]chan *Level, numWindows)
@@ -37,6 +40,7 @@ const (
 	QuitGame
 	CloseWindow
 	Search
+	EmptySpace // to invoke level manager
 )
 
 type Input struct {
@@ -58,14 +62,22 @@ const (
 //Level infor. for game
 type Level struct {
 	Map      [][]Tile
-	Player   Entity
-	Debug    map[Pos]bool
+	Player   Charecter
 	Monsters []*Monster
+	Events   []string //like logs
+	Debug    map[Pos]bool
 }
 type Entity struct {
 	Symbol Tile
 	Pos
-	Speed int32
+	Name string
+}
+type Charecter struct {
+	Entity
+	Hitpoints   int
+	Strength    int
+	Speed       int32
+	actionTimer int // for attack sequence formulae[ actionTimer > int(5000/float32(j.Speed)) ]
 }
 type Pos struct {
 	X, Y int32
@@ -91,6 +103,7 @@ func loadLvlFromFile(filPth string) (lvl *Level) {
 		index++
 	}
 	level := &Level{}
+	level.Events = make([]string, 0)
 	level.Monsters = make([]*Monster, 0)
 	level.Map = make([][]Tile, len(levelLines))
 	for i := range level.Map {
@@ -115,13 +128,16 @@ func loadLvlFromFile(filPth string) (lvl *Level) {
 			case 'S':
 				t = DirtFloor
 				level.Monsters = append(level.Monsters, NewSpider(int32(x*32), int32(y*32)))
+			case '@':
+				t = DirtFloor
+				level.Player.X, level.Player.Y, level.Player.Symbol, level.Player.Speed = int32(x*32), int32(y*32), '@', 3
+				level.Player.Hitpoints, level.Player.Strength = 100, 4
 			default:
 				panic("undefined charecter in map")
 			}
 			level.Map[y][x] = t
 		}
 	}
-	level.Player.X, level.Player.Y, level.Player.Symbol, level.Player.Speed = 84, 84, '@', 3
 	return level
 }
 func getNeighbours(level *Level, pos Pos) []Pos {
@@ -151,6 +167,7 @@ func canSearch(level *Level, pos Pos) bool {
 	if y < 0 {
 		y = 0
 	}
+
 	if x < 0 {
 		x = 0
 	}
@@ -232,6 +249,10 @@ func (game *Game) Run() {
 		game.LevelChans[i] <- game.Level
 	}
 	for input := range game.InputChan {
+		for _, j := range game.Level.Monsters {
+			j.actionTimer += 15
+		}
+		game.Level.Player.actionTimer += 15
 		if input.Typ == QuitGame {
 			return
 		}
@@ -246,37 +267,97 @@ func (game *Game) Run() {
 }
 func (game *Game) LevelManager(input *Input) {
 	p := game.Level.Player
+	var reCalMons = false
 	for _, j := range game.Level.Monsters {
 		j.UpdateMons(p, game)
-		if (p.Y >= j.Y-23 && p.Y <= j.Y+23) && (p.X >= j.X-23 && p.X <= j.X+23) {
-			//fmt.Println("hit plyr")
+		if (p.Y >= j.Y-24 && p.Y <= j.Y+24) && (p.X >= j.X-24 && p.X <= j.X+24) {
+			//hit plyr
+			if j.actionTimer > int(5000/float32(j.Speed)) {
+				game.Level.Player.Hitpoints -= j.Strength
+				game.Level.Events = append(game.Level.Events, j.Name+" hit player health remaining:"+strconv.Itoa(game.Level.Player.Hitpoints))
+				if len(game.Level.Events) > 10 {
+					game.Level.Events = game.Level.Events[1:]
+				}
+				j.actionTimer = 0
+			}
+			if game.Level.Player.Hitpoints <= 0 {
+				//kill plyr
+				//
+				//game over
+				panic("you died")
+			}
 			//hit monster
+			if p.actionTimer > int(5000/float32(p.Speed)) {
+				if lookDirn == Up && p.Y > j.Y {
+					j.Hitpoints -= p.Strength
+					game.Level.Events = append(game.Level.Events, "player hit "+j.Name+" up its hlth remaining:"+strconv.Itoa(j.Hitpoints))
+					if len(game.Level.Events) > 10 {
+						game.Level.Events = game.Level.Events[1:]
+					}
+				} else if lookDirn == Down && p.Y < j.Y {
+					j.Hitpoints -= p.Strength
+					game.Level.Events = append(game.Level.Events, "player hit "+j.Name+" down its hlth remaining:"+strconv.Itoa(j.Hitpoints))
+					if len(game.Level.Events) > 10 {
+						game.Level.Events = game.Level.Events[1:]
+					}
+				} else if lookDirn == Right && p.X < j.X {
+					j.Hitpoints -= p.Strength
+					game.Level.Events = append(game.Level.Events, "player hit "+j.Name+" right its hlth remaining:"+strconv.Itoa(j.Hitpoints))
+					if len(game.Level.Events) > 10 {
+						game.Level.Events = game.Level.Events[1:]
+					}
+				} else if lookDirn == Left && p.X > j.X {
+					j.Hitpoints -= p.Strength
+					game.Level.Events = append(game.Level.Events, "player hit "+j.Name+" left its hlth remaining:"+strconv.Itoa(j.Hitpoints))
+					if len(game.Level.Events) > 10 {
+						game.Level.Events = game.Level.Events[1:]
+					}
+				}
+				game.Level.Player.actionTimer = 0
+			}
+			//killing after loop
+			if j.Hitpoints <= 0 {
+				reCalMons = true
+			}
 			if (p.Y > j.Y-20 && p.Y < j.Y+20) && (p.X > j.X-20 && p.X < j.X+20) {
 				if p.Y < j.Y {
 					game.Level.Player.Y -= p.Speed
 					//fmt.Println("UP plyr:", p.Pos, ", Mons:", j.X, j.Y)
-				} else if p.Y >= j.Y {
+				} else {
 					game.Level.Player.Y += p.Speed
 					//fmt.Println("Down plyr:", p.Pos, ", Mons:", j.X, j.Y)
 				}
 				if p.X < j.X {
 					game.Level.Player.X -= p.Speed
 					//fmt.Println("LEFT plyr:", p.Pos, ", Mons:", j.X, j.Y)
-				} else if p.X >= j.X {
+				} else {
 					game.Level.Player.X += p.Speed
 					//fmt.Println("Right plyr:", p.Pos, ", Mons:", j.X, j.Y)
 				}
 			}
 		}
 	}
+	if reCalMons {
+		aliveMonsters := make([]*Monster, 0)
+		for _, j := range game.Level.Monsters {
+			if j.Hitpoints > 0 {
+				aliveMonsters = append(aliveMonsters, j)
+			}
+		}
+		game.Level.Monsters = aliveMonsters
+	}
 	if (*input).Typ == Up && (game.Level.Map[int((p.Y-2)/32)][int((p.X+18)/32)] == DirtFloor || game.Level.Map[int((p.Y-2)/32)][int((p.X+18)/32)] == OpenDoor) {
 		game.Level.Player.Y -= p.Speed
+		lookDirn = Up
 	} else if (*input).Typ == Down && (game.Level.Map[int((p.Y+2)/32)+1][int((p.X+18)/32)] == DirtFloor || game.Level.Map[int((p.Y+2)/32)+1][int((p.X+18)/32)] == OpenDoor) {
 		game.Level.Player.Y += p.Speed
+		lookDirn = Down
 	} else if (*input).Typ == Right && (game.Level.Map[int((p.Y+18)/32)][int((p.X+2)/32)+1] == DirtFloor || game.Level.Map[int((p.Y+18)/32)][int((p.X+2)/32)+1] == OpenDoor) {
 		game.Level.Player.X += p.Speed
+		lookDirn = Right
 	} else if (*input).Typ == Left && (game.Level.Map[int((p.Y+18)/32)][int((p.X-2)/32)] == DirtFloor || game.Level.Map[int((p.Y+18)/32)][int((p.X-2)/32)] == OpenDoor) {
 		game.Level.Player.X -= p.Speed
+		lookDirn = Left
 	} else if input.Typ == Open {
 		if game.Level.Map[int((p.Y-2)/32)][int((p.X+18)/32)] == CloseDoor {
 			game.Level.Map[int((p.Y-2)/32)][int((p.X+18)/32)] = OpenDoor
@@ -301,43 +382,67 @@ func (game *Game) LevelManager(input *Input) {
 		game.LevelChans = append(game.LevelChans[:chanIndex], game.LevelChans[chanIndex+1:]...)
 	}
 }
-func (monstr *Monster) UpdateMons(plyr Entity, game *Game) {
+func (monstr *Monster) UpdateMons(plyr Charecter, game *Game) {
 	posns := game.astar(monstr.Pos, plyr.Pos)
 	if len(posns) > 3 && canSearch(game.Level, posns[3]) {
 		if posns[3].Y*32 < monstr.Y {
-			monstr.Y -= monstr.speed
-		} else if posns[3].Y*32 > monstr.Y {
-			monstr.Y += monstr.speed
+			monstr.Y -= monstr.Speed
+		}
+		if posns[3].Y*32 > monstr.Y {
+			monstr.Y += monstr.Speed
 		}
 		if posns[3].X*32 > monstr.X {
-			monstr.X += monstr.speed
-		} else if posns[3].X*32 < monstr.X {
-			monstr.X -= monstr.speed
+			monstr.X += monstr.Speed
+		}
+		if posns[3].X*32 < monstr.X {
+			monstr.X -= monstr.Speed
 		}
 		//fmt.Println(posns[1], monstr.Pos)
 	} else if len(posns) > 2 && canSearch(game.Level, posns[2]) {
 		if posns[2].X*32 > monstr.X {
-			monstr.X += monstr.speed
-		} else if posns[2].X*32 < monstr.X {
-			monstr.X -= monstr.speed
+			monstr.X += monstr.Speed
+		}
+		if posns[2].X*32 < monstr.X {
+			monstr.X -= monstr.Speed
 		}
 		if posns[2].Y*32 < monstr.Y {
-			monstr.Y -= monstr.speed
-		} else if posns[2].Y*32 > monstr.Y {
-			monstr.Y += monstr.speed
+			monstr.Y -= monstr.Speed
+		}
+		if posns[2].Y*32 > monstr.Y {
+			monstr.Y += monstr.Speed
 		}
 		//fmt.Println(posns[1], monstr.Pos)
 	} else if len(posns) > 1 {
 		if posns[1].Y*32 < monstr.Y {
-			monstr.Y -= monstr.speed
-		} else if posns[1].Y*32 > monstr.Y {
-			monstr.Y += monstr.speed
+			monstr.Y -= monstr.Speed
+		}
+		if posns[1].Y*32 > monstr.Y {
+			monstr.Y += monstr.Speed
 		}
 		if posns[1].X*32 > monstr.X {
-			monstr.X += monstr.speed
-		} else if posns[1].X*32 < monstr.X {
-			monstr.X -= monstr.speed
+			monstr.X += monstr.Speed
+		}
+		if posns[1].X*32 < monstr.X {
+			monstr.X -= monstr.Speed
 		}
 		//fmt.Println(posns[1], monstr.Pos)
+	}
+	for _, x := range game.Level.Monsters {
+		if monstr == x {
+			continue
+		} else {
+			if (x.X-monstr.X < 18 && x.X-monstr.X > -18) && (x.Y-monstr.Y < 18 && x.Y-monstr.Y > -18) {
+				if x.Y > monstr.Y {
+					monstr.Y -= monstr.Speed
+				} else if x.Y < monstr.Y {
+					monstr.Y += monstr.Speed
+				}
+				if x.X > monstr.X {
+					monstr.X -= monstr.Speed
+				} else if x.X < monstr.X {
+					monstr.X += monstr.Speed
+				}
+			}
+		}
 	}
 }

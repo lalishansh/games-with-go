@@ -1,17 +1,26 @@
 package game
 
 type Monster struct {
-	Pos
-	Symbol    Tile
-	Name      string
-	hitpoints int
-	strength  int
-	speed     int32
+	Charecter
 }
 
 func NewRat(x, y int32) *Monster {
-	return &Monster{Pos{x, y}, 'R', "rat", 5, 5, 5}
+	monstr := &Monster{}
+	monstr.Pos = Pos{x, y}
+	monstr.Symbol = 'R'
+	monstr.Name = "Rat"
+	monstr.Hitpoints = 5
+	monstr.Strength = 5
+	monstr.Speed = 5
+	return monstr
 }
 func NewSpider(x, y int32) *Monster {
-	return &Monster{Pos{x, y}, 'S', "spider", 10, 10, 2}
+	monstr := &Monster{}
+	monstr.Pos = Pos{x, y}
+	monstr.Symbol = 'S'
+	monstr.Name = "Spider"
+	monstr.Hitpoints = 10
+	monstr.Strength = 10
+	monstr.Speed = 2
+	return monstr
 }

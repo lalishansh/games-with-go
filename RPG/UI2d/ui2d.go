@@ -11,6 +11,7 @@ import (
 
 	"github.com/t-RED-69/games-with-go/RPG/game"
 	"github.com/veandco/go-sdl2/sdl"
+	"github.com/veandco/go-sdl2/ttf"
 )
 
 type ui struct {
@@ -27,12 +28,23 @@ type ui struct {
 	r                   *rand.Rand
 	levelChan           chan *game.Level
 	inputChan           chan *game.Input
+	fontSmall           *ttf.Font
+	fontMed             *ttf.Font
+	fontLarg            *ttf.Font
+	//
+	str2TexSmll map[string]*sdl.Texture
+	str2TexMed  map[string]*sdl.Texture
+	str2TexLarg map[string]*sdl.Texture
+	helloWorld  *sdl.Texture
 }
 
 func NewUI(inputChan chan *game.Input, levelChan chan *game.Level) *ui {
 	ui := &ui{}
 	ui.winWidht, ui.winHeight = 1280, 720
 	ui.zoom = 3
+	ui.str2TexSmll = make(map[string]*sdl.Texture)
+	ui.str2TexMed = make(map[string]*sdl.Texture)
+	ui.str2TexLarg = make(map[string]*sdl.Texture)
 	ui.inputChan = inputChan
 	ui.levelChan = levelChan
 	ui.r = rand.New(rand.NewSource(1))
@@ -56,7 +68,75 @@ func NewUI(inputChan chan *game.Input, levelChan chan *game.Level) *ui {
 	ui.keyBoard = make([]KeyStates, len(sdl.GetKeyboardState()))
 	ui.mouse.ProcessMouse()
 	ProcessKeys(&ui.keyBoard)
+	if ui.fontSmall, err = ttf.OpenFont("UI2d/assets/Kingthings_Foundation.ttf", 18); err != nil {
+		fmt.Println("cannot open font: UI2d/assets/Kingthings_Foundation.ttf")
+	}
+	if ui.fontMed, err = ttf.OpenFont("UI2d/assets/Kingthings_Foundation.ttf", 32); err != nil {
+		fmt.Println("cannot open font: UI2d/assets/Kingthings_Foundation.ttf")
+	}
+	if ui.fontLarg, err = ttf.OpenFont("UI2d/assets/Kingthings_Foundation.ttf", 48); err != nil {
+		fmt.Println("cannot open font: UI2d/assets/Kingthings_Foundation.ttf")
+	}
+	fontSurface, err := ui.fontMed.RenderUTF8Blended("Hello world", sdl.Color{255, 0, 0, 100})
+	if err != nil {
+		panic(err)
+	}
+	ui.helloWorld, err = ui.renderer.CreateTextureFromSurface(fontSurface)
+	if err != nil {
+		panic(err)
+	}
+	//
 	return ui
+}
+
+type FontSize int
+
+const (
+	FontSmall FontSize = iota
+	FontMedium
+	FontLarge
+)
+
+func (ui *ui) stringToTexture(s string, clor sdl.Color, size FontSize) *sdl.Texture {
+	var tex *sdl.Texture
+	var font *ttf.Font
+	switch size {
+	case FontSmall:
+		tex, exist := ui.str2TexSmll[s]
+		if exist {
+			return tex
+		}
+		font = ui.fontSmall
+	case FontMedium:
+		tex, exist := ui.str2TexMed[s]
+		if exist {
+			return tex
+		}
+		font = ui.fontMed
+	case FontLarge:
+		tex, exist := ui.str2TexLarg[s]
+		if exist {
+			return tex
+		}
+		font = ui.fontLarg
+	}
+	fontSurface, err := font.RenderUTF8Blended(s, clor)
+	if err != nil {
+		panic(err)
+	}
+	tex, err = ui.renderer.CreateTextureFromSurface(fontSurface)
+	if err != nil {
+		panic(err)
+	}
+	switch size {
+	case FontSmall:
+		ui.str2TexSmll[s] = tex
+	case FontMedium:
+		ui.str2TexMed[s] = tex
+	case FontLarge:
+		ui.str2TexLarg[s] = tex
+	}
+	return tex
 }
 
 type MouseState struct {
@@ -173,6 +253,11 @@ func init() {
 		fmt.Println(err)
 		return
 	}
+	err = ttf.Init()
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
 }
 
 //Draw to draw over screen
@@ -236,6 +321,13 @@ func (ui *ui) Draw(level *game.Level) {
 			}
 		}
 	}
+	//
+	for i := range level.Events {
+		tex := ui.stringToTexture(level.Events[i], sdl.Color{255, 0, 0, 0}, FontSmall)
+		_, _, w, h, _ := tex.Query()
+		ui.renderer.Copy(tex, nil, &sdl.Rect{10, ui.winHeight - int32((i+1)*22), w, h})
+	}
+	//
 	ui.renderer.Present()
 	sdl.Delay(10)
 }
@@ -313,6 +405,8 @@ func (ui *ui) Run() {
 				input = &game.Input{Typ: game.Right}
 			} else if ui.keyBoard[sdl.SCANCODE_O].Changed && ui.keyBoard[sdl.SCANCODE_O].IsDown {
 				input = &game.Input{Typ: game.Open}
+			} else if ui.keyBoard[sdl.SCANCODE_SPACE].IsDown {
+				input = &game.Input{Typ: game.Open}
 			} else if ui.keyBoard[sdl.SCANCODE_S].Changed && ui.keyBoard[sdl.SCANCODE_S].IsDown {
 				fmt.Println("search")
 				input = &game.Input{Typ: game.Search}
@@ -325,6 +419,6 @@ func (ui *ui) Run() {
 				ui.inputChan <- input
 			}
 		}
-		sdl.Delay(10)
+		sdl.Delay(12)
 	}
 }
