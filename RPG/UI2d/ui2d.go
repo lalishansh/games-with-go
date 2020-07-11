@@ -35,8 +35,11 @@ type ui struct {
 	str2TexSmll map[string]*sdl.Texture
 	str2TexMed  map[string]*sdl.Texture
 	str2TexLarg map[string]*sdl.Texture
-	helloWorld  *sdl.Texture
+	//
+	eventBackGr *sdl.Texture
 }
+
+var maxEventBGRWid int32
 
 func NewUI(inputChan chan *game.Input, levelChan chan *game.Level) *ui {
 	ui := &ui{}
@@ -77,15 +80,9 @@ func NewUI(inputChan chan *game.Input, levelChan chan *game.Level) *ui {
 	if ui.fontLarg, err = ttf.OpenFont("UI2d/assets/Kingthings_Foundation.ttf", 48); err != nil {
 		fmt.Println("cannot open font: UI2d/assets/Kingthings_Foundation.ttf")
 	}
-	fontSurface, err := ui.fontMed.RenderUTF8Blended("Hello world", sdl.Color{255, 0, 0, 100})
-	if err != nil {
-		panic(err)
-	}
-	ui.helloWorld, err = ui.renderer.CreateTextureFromSurface(fontSurface)
-	if err != nil {
-		panic(err)
-	}
-	//
+	ui.eventBackGr = ui.getSinglePixTex(sdl.Color{0, 0, 0, 100})
+	ui.eventBackGr.SetBlendMode(sdl.BLENDMODE_BLEND)
+	maxEventBGRWid = int32(float32(ui.winWidht) * 0.25)
 	return ui
 }
 
@@ -181,7 +178,7 @@ func ProcessKeys(kb *[]KeyStates) {
 
 //SpriteTexture cantains sprite's enum name,texture,default length and breadth for image
 type SpriteTexture struct {
-	symbol   game.Tile
+	symbol   rune
 	varCount int
 	index    int
 	tex      *sdl.Texture
@@ -246,7 +243,19 @@ func (ui *ui) SpriteOpener(str string, lenPerSprite, widPerSprite int32, noOfSpr
 	}
 	return &spriteArray
 }
-
+func (ui *ui) getSinglePixTex(color sdl.Color) *sdl.Texture {
+	tex, err := ui.renderer.CreateTexture(sdl.PIXELFORMAT_ABGR8888, sdl.TEXTUREACCESS_STATIC, 1, 1)
+	if err != nil {
+		panic(err)
+	}
+	pixS := make([]byte, 4)
+	pixS[0] = color.R
+	pixS[1] = color.G
+	pixS[2] = color.B
+	pixS[3] = color.A
+	tex.Update(nil, pixS, 4)
+	return tex
+}
 func init() {
 	err := sdl.Init(sdl.INIT_EVERYTHING)
 	if err != nil {
@@ -287,20 +296,23 @@ func (ui *ui) Draw(level *game.Level) {
 		var r int
 		for x, tile := range row {
 			dstRect := sdl.Rect{int32(x*32)*ui.zoom - ui.centerX, int32(y*32)*ui.zoom - ui.centerY, 32 * ui.zoom, 32 * ui.zoom}
-			//pos := game.Pos{int32(x), int32(y)}
 			for t := range *ui.MiniAtlas {
-				if tile == (*ui.MiniAtlas)[t].symbol {
+				if tile.Rune == (*ui.MiniAtlas)[t].symbol {
 					r = ui.r.Intn((*ui.MiniAtlas)[t].varCount)
-					//if level.Debug[pos] {
-					//	(*ui.MiniAtlas)[t+r].tex.SetColorMod(128, 0, 0)
-					//} else {
-					//	(*ui.MiniAtlas)[t+r].tex.SetColorMod(255, 255, 255)
-					//}
-					switch tile {
-					case game.OpenDoor:
-						ui.renderer.Copy((*ui.MiniAtlas)[12].tex, nil, &dstRect)
+					if level.Debug[game.Pos{int32(x), int32(y)}] {
+						(*ui.MiniAtlas)[t+r].tex.SetColorMod(128, 0, 0)
+					} else {
+						(*ui.MiniAtlas)[t+r].tex.SetColorMod(255, 255, 255)
 					}
-					ui.renderer.Copy((*ui.MiniAtlas)[t+r].tex, nil, &dstRect)
+					switch tile.Rune {
+					case game.OpenDoor:
+						if tile.Visible {
+							ui.renderer.Copy((*ui.MiniAtlas)[12].tex, nil, &dstRect)
+						}
+					}
+					if tile.Visible {
+						ui.renderer.Copy((*ui.MiniAtlas)[t+r].tex, nil, &dstRect)
+					}
 					break
 				}
 			}
@@ -312,20 +324,34 @@ func (ui *ui) Draw(level *game.Level) {
 			break
 		}
 	}
-	for i := range level.Monsters {
-		dstRect := sdl.Rect{int32(level.Monsters[i].X)*ui.zoom - ui.centerX, int32(level.Monsters[i].Y)*ui.zoom - ui.centerY, 32 * ui.zoom, 32 * ui.zoom}
+	for _, j := range level.Monsters {
+		dstRect := sdl.Rect{int32(j.X)*ui.zoom - ui.centerX, int32(j.Y)*ui.zoom - ui.centerY, 32 * ui.zoom, 32 * ui.zoom}
+		if !level.Map[j.Pos.Div32().Y][j.Pos.Div32().X].Visible {
+			continue
+		}
 		for t := range *ui.MiniAtlas {
-			if level.Monsters[i].Symbol == (*ui.MiniAtlas)[t].symbol {
+			if j.Symbol == (*ui.MiniAtlas)[t].symbol {
+				if j.Debug2 {
+					(*ui.MiniAtlas)[t].tex.SetColorMod(160, 160, 255)
+				} else if j.Debug {
+					(*ui.MiniAtlas)[t].tex.SetColorMod(255, 160, 160)
+				} else {
+					(*ui.MiniAtlas)[t].tex.SetColorMod(255, 255, 255)
+				}
 				ui.renderer.Copy((*ui.MiniAtlas)[t].tex, nil, &dstRect)
 				break
 			}
 		}
 	}
 	//
-	for i := range level.Events {
-		tex := ui.stringToTexture(level.Events[i], sdl.Color{255, 0, 0, 0}, FontSmall)
+	ui.renderer.Copy(ui.eventBackGr, nil, &sdl.Rect{5, int32(float32(ui.winHeight)*0.67 - 5), maxEventBGRWid + 8, int32(float32(ui.winWidht) * 0.25)})
+	for i, j := len(level.Events)-1, 0; i > 0; i, j = i-1, j+1 {
+		tex := ui.stringToTexture(level.Events[i], sdl.Color{255, 20, 20, 0}, FontSmall)
 		_, _, w, h, _ := tex.Query()
-		ui.renderer.Copy(tex, nil, &sdl.Rect{10, ui.winHeight - int32((i+1)*22), w, h})
+		ui.renderer.Copy(tex, nil, &sdl.Rect{10, int32(float32(ui.winHeight)*0.67 + float32(j*22)), w, h})
+		if w > maxEventBGRWid {
+			maxEventBGRWid = w
+		}
 	}
 	//
 	ui.renderer.Present()
@@ -342,7 +368,7 @@ func (ui *ui) idexAssignerToAtlas() *[]SpriteTexture {
 	for scanner.Scan() {
 		line := scanner.Text()
 		line = strings.TrimSpace(line)
-		tileRune := game.Tile(line[0])
+		tileRune := rune(line[0])
 		xyv := line[1:]
 		splitXYV := strings.Split(xyv, ",")
 		x, err := strconv.ParseInt(splitXYV[0], 10, 64)
@@ -406,7 +432,7 @@ func (ui *ui) Run() {
 			} else if ui.keyBoard[sdl.SCANCODE_O].Changed && ui.keyBoard[sdl.SCANCODE_O].IsDown {
 				input = &game.Input{Typ: game.Open}
 			} else if ui.keyBoard[sdl.SCANCODE_SPACE].IsDown {
-				input = &game.Input{Typ: game.Open}
+				input = &game.Input{Typ: game.EmptySpace}
 			} else if ui.keyBoard[sdl.SCANCODE_S].Changed && ui.keyBoard[sdl.SCANCODE_S].IsDown {
 				fmt.Println("search")
 				input = &game.Input{Typ: game.Search}
@@ -419,6 +445,6 @@ func (ui *ui) Run() {
 				ui.inputChan <- input
 			}
 		}
-		sdl.Delay(12)
+		sdl.Delay(5)
 	}
 }
