@@ -53,6 +53,7 @@ type Input struct {
 type Tile struct {
 	Rune    rune
 	Visible bool
+	Seen    bool
 }
 
 const (
@@ -62,6 +63,8 @@ const (
 	OpenDoor       = '/'
 	Void           = ' '
 	Player         = '@'
+	StairUp        = 'u'
+	StairDown      = 'd'
 )
 
 //Level infor. for game
@@ -138,7 +141,11 @@ func loadLvlFromFile(filPth string) (lvl *Level) {
 			case '@':
 				t = DirtFloor
 				level.Player.X, level.Player.Y, level.Player.Symbol, level.Player.Speed = int32(x*32), int32(y*32), '@', 3
-				level.Player.Hitpoints, level.Player.Strength, level.Player.sightRange = 200, 4, 4
+				level.Player.Hitpoints, level.Player.Strength, level.Player.sightRange = 200, 4, 5
+			case 'u':
+				t = StairUp
+			case 'd':
+				t = StairDown
 			default:
 				panic("undefined charecter in map")
 			}
@@ -146,6 +153,7 @@ func loadLvlFromFile(filPth string) (lvl *Level) {
 			level.Map[y][x].Visible = false
 		}
 	}
+	level.lineOfSight(level.Player.Div32())
 	return level
 }
 func getNeighbours(level *Level, pos Pos) []Pos {
@@ -183,13 +191,20 @@ func canWalk(level *Level, pos Pos) bool {
 func canBSeen(level *Level, pos Pos) bool {
 	y := int(pos.Y)
 	x := int(pos.X)
-	if y < 0 {
-		y = 0
-	}
-	if x < 0 {
-		x = 0
-	}
-	return !(level.Map[y][x].Rune == StoneWall || level.Map[y][x].Rune == CloseDoor || level.Map[y][x].Rune == Void)
+	//if y < 0 {
+	//	y = 0
+	//}
+	//if y >= int(maxColmSize) {
+	//	y = int(maxColmSize - 1)
+	//}
+	//if x < 0 {
+	//	x = 0
+	//}
+	//if x >= int(maxRowSize) {
+	//	x = int(maxRowSize - 1)
+	//} Note: since perfoming check before function starts no need to do here
+	fmt.Println(x, y)
+	return !(level.Map[x][y].Rune == StoneWall || level.Map[x][y].Rune == CloseDoor || level.Map[x][y].Rune == Void)
 }
 func (game *Game) bfs(start Pos) {
 	start = Pos{int32(start.X / 32), int32(start.Y / 32)}
@@ -212,14 +227,152 @@ func (game *Game) bfs(start Pos) {
 		}
 	}
 }
-func bresenhum(start, end Pos) (result []Pos) {
-	result = make([]Pos, 0)
+
+//////////////////////////  understand
+// Is there line of sight/a window?
+func canSeeThrough(level *Level, pos Pos) bool {
+	if inRange(level, pos) {
+		// Check tile for solid object
+		t := level.Map[pos.Y][pos.X]
+		switch t.Rune {
+		case StoneWall, CloseDoor, Void:
+			return false
+		default:
+			return true
+		}
+	}
+	return false
+}
+func inRange(level *Level, pos Pos) bool {
+	return pos.X < int32(len(level.Map[0])) && pos.Y < int32(len(level.Map)) && pos.X >= 0 && pos.Y >= 0
+}
+
+// Draw a circle around the player and draw a line to each endpoint
+func (level *Level) bresenhum(start Pos, end Pos) {
+	steep := math.Abs(float64(end.Y-start.Y)) > math.Abs(float64(end.X-start.X)) // Is the line steep or not?
+	// Swap the x and y for start and end
+	if steep {
+		start.X, start.Y = start.Y, start.X
+		end.X, end.Y = end.Y, end.X
+	}
+
+	deltaY := int32(math.Abs(float64(end.Y - start.Y)))
+
+	var err int32
+	y := start.Y
+	var ystep int32 = 1 // How far we are stepping when err is above threshold
+	if start.Y >= end.Y {
+		ystep = -1 // Reverse it when we step
+	}
+
+	// Are we on the left or right side of graph
+	if start.X > end.X {
+		deltaX := start.X - end.X // We know start.X will be larger than end.X
+		// Count down so lines extend FROM the player, not TO
+		for x := start.X; x > end.X; x-- {
+			var pos Pos
+			if steep {
+				pos = Pos{y, x} // If we are steep, x and y will be swapped
+			} else {
+				pos = Pos{x, y}
+			}
+			level.Map[pos.Y][pos.X].Visible = true
+			level.Map[pos.Y][pos.X].Seen = true
+			if !canSeeThrough(level, pos) {
+				return
+			}
+			err += deltaY
+			if 2*err >= deltaX {
+				y += ystep // Go up or down depending on the direction of our line
+				err -= deltaX
+			}
+		}
+	} else {
+		deltaX := end.X - start.X // We know start.X will be larger than end.X
+		for x := start.X; x < end.X; x++ {
+			var pos Pos
+			if steep {
+				pos = Pos{y, x} // If we are steep, x and y will be swapped
+			} else {
+				pos = Pos{x, y}
+			}
+			level.Map[pos.Y][pos.X].Visible = true
+			level.Map[pos.Y][pos.X].Seen = true
+			if !canSeeThrough(level, pos) {
+				return
+			}
+			err += deltaY
+			if 2*err >= deltaX {
+				y += ystep // Go up or down depending on the direction of our line
+				err -= deltaX
+			}
+		}
+	}
+}
+
+//////////////////////////
+/*
+func (lvl *Level) bresenhum(start, end Pos) {
 	steep := math.Abs(float64(end.Y-start.Y)) > math.Abs(float64(end.X-start.X))
 	if steep {
 		start.X, start.Y = start.Y, start.X
 		end.X, end.Y = end.Y, end.X
 	}
+	deltaY := int32(math.Abs(float64(end.Y - start.Y)))
+	var err int32 = 0
+	y := start.Y
+	var yStep int32 = 1
+	if start.Y >= end.Y {
+		yStep = -1
+	}
 	if start.X > end.X {
+		deltaX := start.X - end.X
+		for x := start.X; x > end.X; x-- {
+			if canBSeen(lvl, Pos{x, y}) {
+				if steep {
+					lvl.Map[x][y].Visible = true
+				} else {
+					lvl.Map[y][x].Visible = true
+				}
+			} else {
+				if steep {
+					lvl.Map[x][y].Visible = true
+				} else {
+					lvl.Map[y][x].Visible = true
+				}
+				return
+			}
+			err += deltaY
+			if 2*err >= deltaX {
+				y += yStep
+				err -= deltaX
+			}
+		}
+	} else {
+		deltaX := end.X - start.X
+		for x := start.X; x < end.X; x++ {
+			if canBSeen(lvl, Pos{x, y}) {
+				if steep {
+					lvl.Map[x][y].Visible = true
+				} else {
+					lvl.Map[y][x].Visible = true
+				}
+			} else {
+				if steep {
+					lvl.Map[x][y].Visible = true
+				} else {
+					lvl.Map[y][x].Visible = true
+				}
+				return
+			}
+			err += deltaY
+			if 2*err >= deltaX {
+				y += yStep
+				err -= deltaX
+			}
+		}
+	}
+	/*if start.X > end.X {
 		start.X, end.X = end.X, start.X
 		start.Y, end.Y = end.Y, start.Y
 	}
@@ -231,19 +384,66 @@ func bresenhum(start, end Pos) (result []Pos) {
 	if start.Y >= end.Y {
 		yStep = -1
 	}
+	if start.X < 0 {
+		start.X = 0
+	}
 	for x := start.X; x < end.X; x++ {
-		if steep {
-			result = append(result, Pos{y, x})
+		if canBSeen(lvl, Pos{x, y}) {
+			if y < 0 {
+				y = 0
+			}
+			if steep {
+				lvl.Map[x][y].Visible = true
+			} else {
+				lvl.Map[y][x].Visible = true
+			}
 		} else {
-			result = append(result, Pos{x, y})
+			if y < 0 {
+				y = 0
+			}
+			fmt.Println("x,y:", x, y)
+			if steep {
+				lvl.Map[x][y].Visible = true
+			} else {
+				lvl.Map[y][x].Visible = true
+			}
+			return
 		}
 		err += deltaY
 		if 2*err >= deltaX {
 			y += yStep
 			err -= deltaX
 		}
+	}*/
+/*
+}
+*/
+func (lvl *Level) lineOfSight(pos Pos) {
+	for i, row := range lvl.Map {
+		for j := range row {
+			lvl.Map[i][j].Visible = false
+		}
 	}
-	return result
+	dist := lvl.Player.sightRange
+	//fmt.Println(pos)
+	y := pos.Y - dist
+	limitY := pos.Y + dist
+	for ; y <= limitY; y++ {
+		x := pos.X - dist
+		limitX := pos.X + dist
+		for ; x <= limitX; x++ {
+			deltaX := pos.X - x
+			deltaY := pos.Y - y
+			d2 := deltaX*deltaX + deltaY*deltaY
+			if d2 <= dist*dist {
+				//fmt.Printf("0")
+				lvl.bresenhum(pos, Pos{x, y})
+			} else {
+				//fmt.Printf(".")
+			}
+		}
+		//fmt.Println()
+	}
 }
 func (game *Game) astar(start Pos, goal Pos) []Pos {
 	start = Pos{int32(start.X / 32), int32(start.Y / 32)}
@@ -317,10 +517,9 @@ func (game *Game) Run() {
 }
 func (game *Game) LevelManager(input *Input) {
 	p := game.Level.Player.Pos
-	//line := bresenhum(p.Div32(), Pos{p.Div32().X + 5, p.Div32().Y - 5})
-	//for _, t := range line {
-	//	game.Level.Debug[t] = true
-	//}
+	if game.Level.Map[int((p.Y+30)/32)][int((p.X+16)/32)].Rune == StairUp || game.Level.Map[int((p.Y+16)/32)][int((p.X+16)/32)].Rune == StairDown {
+		fmt.Println("newLevel")
+	}
 	plyr := &game.Level.Player
 	UpdatePlayer(input.Typ, game.Level)
 	if input.Typ == CloseWindow {
@@ -502,129 +701,34 @@ func (monstr *Monster) UpdateMons(plyr *Charecter, game *Game) {
 		}
 	}
 }
-func (p *Charecter) applicatnOfbresenhum(pos Pos, lvl *Level) {
-	//for _, row := range lvl.Map {
-	//	for _, tile := range row {
-	//		tile.Visible = false
-	//	}
-	//}
-	line := bresenhum(pos, pos.add(p.sightRange, -p.sightRange))
-	for _, posn := range line {
-		if canBSeen(lvl, posn) {
-			if posn.Y < 0 {
-				posn.Y = 0
-			}
-			if posn.X < 0 {
-				posn.X = 0
-			}
-			lvl.Map[posn.Y][posn.X].Visible = true
-		} else {
-			if posn.Y < 0 {
-				posn.Y = 0
-			}
-			if posn.X < 0 {
-				posn.X = 0
-			}
-			lvl.Map[posn.Y][posn.X].Visible = true
-			break
-		}
-	}
-	line = bresenhum(pos, pos.add(p.sightRange, p.sightRange))
-	for _, posn := range line {
-		if canBSeen(lvl, posn) {
-			if posn.Y < 0 {
-				posn.Y = 0
-			}
-			if posn.X < 0 {
-				posn.X = 0
-			}
-			lvl.Map[posn.Y][posn.X].Visible = true
-		} else {
-			if posn.Y < 0 {
-				posn.Y = 0
-			}
-			if posn.X < 0 {
-				posn.X = 0
-			}
-			lvl.Map[posn.Y][posn.X].Visible = true
-			break
-		}
-	}
-	line = bresenhum(pos, pos.add(-p.sightRange, p.sightRange))
-	for _, posn := range line {
-		if canBSeen(lvl, posn) {
-			if posn.Y < 0 {
-				posn.Y = 0
-			}
-			if posn.X < 0 {
-				posn.X = 0
-			}
-			lvl.Map[posn.Y][posn.X].Visible = true
-		} else {
-			if posn.Y < 0 {
-				posn.Y = 0
-			}
-			if posn.X < 0 {
-				posn.X = 0
-			}
-			lvl.Map[posn.Y][posn.X].Visible = true
-			break
-		}
-	}
-	line = bresenhum(pos, pos.add(-p.sightRange, -p.sightRange))
-	for _, posn := range line {
-		if canBSeen(lvl, posn) {
-			if posn.Y < 0 {
-				posn.Y = 0
-			}
-			if posn.X < 0 {
-				posn.X = 0
-			}
-			lvl.Map[posn.Y][posn.X].Visible = true
-		} else {
-			if posn.Y < 0 {
-				posn.Y = 0
-			}
-			if posn.X < 0 {
-				posn.X = 0
-			}
-			lvl.Map[posn.Y][posn.X].Visible = true
-			break
-		}
-	}
-}
 
 func UpdatePlayer(input InputType, lvl *Level) {
 	p := &lvl.Player
-	if input == Up && (lvl.Map[int((p.Y-2)/32)][int((p.X+16)/32)].Rune == DirtFloor || lvl.Map[int((p.Y-2)/32)][int((p.X+16)/32)].Rune == OpenDoor) {
+	if input == Up && (lvl.Map[int((p.Y-1)/32)][int((p.X+16)/32)].Rune == DirtFloor || lvl.Map[int((p.Y-1)/32)][int((p.X+16)/32)].Rune == OpenDoor || lvl.Map[int((p.Y-1)/32)][int((p.X+16)/32)].Rune == StairUp || lvl.Map[int((p.Y-1)/32)][int((p.X+16)/32)].Rune == StairDown) {
 		lvl.Player.Y -= p.Speed
-		//
-		p.applicatnOfbresenhum(p.Pos.Div32(), lvl)
+		lvl.lineOfSight(p.Pos.Div32())
 		lookDirn = Up
-	} else if input == Down && (lvl.Map[int((p.Y+2)/32)+1][int((p.X+16)/32)].Rune == DirtFloor || lvl.Map[int((p.Y+2)/32)+1][int((p.X+16)/32)].Rune == OpenDoor) {
+	} else if input == Down && (lvl.Map[int((p.Y+1)/32)+1][int((p.X+16)/32)].Rune == DirtFloor || lvl.Map[int((p.Y+1)/32)+1][int((p.X+16)/32)].Rune == OpenDoor || lvl.Map[int((p.Y+1)/32)+1][int((p.X+16)/32)].Rune == StairUp || lvl.Map[int((p.Y+1)/32)+1][int((p.X+16)/32)].Rune == StairDown) {
 		lvl.Player.Y += p.Speed
-		//
-		p.applicatnOfbresenhum(p.Pos.Div32(), lvl)
+		lvl.lineOfSight(p.Pos.Div32())
 		lookDirn = Down
-	} else if input == Right && (lvl.Map[int((p.Y+16)/32)][int((p.X+2)/32)+1].Rune == DirtFloor || lvl.Map[int((p.Y+16)/32)][int((p.X+2)/32)+1].Rune == OpenDoor) {
+	} else if input == Right && (lvl.Map[int((p.Y+16)/32)][int((p.X+1)/32)+1].Rune == DirtFloor || lvl.Map[int((p.Y+16)/32)][int((p.X+1)/32)+1].Rune == OpenDoor || lvl.Map[int((p.Y+16)/32)][int((p.X+1)/32)+1].Rune == StairUp || lvl.Map[int((p.Y+16)/32)][int((p.X+1)/32)+1].Rune == StairDown) {
 		lvl.Player.X += p.Speed
-		//
-		p.applicatnOfbresenhum(p.Pos.Div32(), lvl)
+		lvl.lineOfSight(p.Pos.Div32())
 		lookDirn = Right
-	} else if input == Left && (lvl.Map[int((p.Y+16)/32)][int((p.X-2)/32)].Rune == DirtFloor || lvl.Map[int((p.Y+16)/32)][int((p.X-2)/32)].Rune == OpenDoor) {
+	} else if input == Left && (lvl.Map[int((p.Y+16)/32)][int((p.X-1)/32)].Rune == DirtFloor || lvl.Map[int((p.Y+16)/32)][int((p.X-1)/32)].Rune == OpenDoor || lvl.Map[int((p.Y+16)/32)][int((p.X-1)/32)].Rune == StairUp || lvl.Map[int((p.Y+16)/32)][int((p.X-1)/32)].Rune == StairDown) {
 		lvl.Player.X -= p.Speed
-		//
-		p.applicatnOfbresenhum(p.Pos.Div32(), lvl)
+		lvl.lineOfSight(p.Pos.Div32())
 		lookDirn = Left
 	} else if input == Open {
-		if lvl.Map[int((p.Y-2)/32)][int((p.X+16)/32)].Rune == CloseDoor {
-			lvl.Map[int((p.Y-2)/32)][int((p.X+16)/32)].Rune = OpenDoor
-		} else if lvl.Map[int((p.Y+2)/32)+1][int((p.X+16)/32)].Rune == CloseDoor {
-			lvl.Map[int((p.Y+2)/32)+1][int((p.X+16)/32)].Rune = OpenDoor
-		} else if lvl.Map[int((p.Y+16)/32)][int((p.X+2)/32)+1].Rune == CloseDoor {
-			lvl.Map[int((p.Y+16)/32)][int((p.X+2)/32)+1].Rune = OpenDoor
-		} else if lvl.Map[int((p.Y+16)/32)][int((p.X-2)/32)].Rune == CloseDoor {
-			lvl.Map[int((p.Y+16)/32)][int((p.X-2)/32)].Rune = OpenDoor
+		if lvl.Map[int((p.Y-1)/32)][int((p.X+16)/32)].Rune == CloseDoor {
+			lvl.Map[int((p.Y-1)/32)][int((p.X+16)/32)].Rune = OpenDoor
+		} else if lvl.Map[int((p.Y+1)/32)+1][int((p.X+16)/32)].Rune == CloseDoor {
+			lvl.Map[int((p.Y+1)/32)+1][int((p.X+16)/32)].Rune = OpenDoor
+		} else if lvl.Map[int((p.Y+16)/32)][int((p.X+1)/32)+1].Rune == CloseDoor {
+			lvl.Map[int((p.Y+16)/32)][int((p.X+1)/32)+1].Rune = OpenDoor
+		} else if lvl.Map[int((p.Y+16)/32)][int((p.X-1)/32)].Rune == CloseDoor {
+			lvl.Map[int((p.Y+16)/32)][int((p.X-1)/32)].Rune = OpenDoor
 		}
 	} else if input == EmptySpace {
 		idlePosCounter++
@@ -690,6 +794,7 @@ func plyrCollisnHandler(j *Pos, plyr *Charecter, mons *Monster, lvl *Level) {
 			} else {
 				//fmt.Printf("up plyr.Y -= (18 - j.Y + p.Y) >=> %v -= (18 - %v + %v),(%v)\n\n", plyr.Y, j.Y, p.Y, (18 - j.Y + p.Y))
 				plyr.Y -= (18 - j.Y + p.Y)
+				lvl.lineOfSight(p.Div32())
 			}
 		} else if j.Y < plyr.Y {
 			//fmt.Println("down !canWalk(lvl,", p.DownN(), ")=", !canWalk(lvl, p.DownN()), lvl.Map[p.DownN().Y][p.DownN().X])
@@ -699,6 +804,7 @@ func plyrCollisnHandler(j *Pos, plyr *Charecter, mons *Monster, lvl *Level) {
 			} else {
 				//fmt.Printf("plyr.Y += (18 - p.Y + j.Y) >=> %v += (18 - %v + %v),(%v)\n\n", plyr.Y, p.Y, j.Y, (18 - p.Y + j.Y))
 				plyr.Y += (18 - p.Y + j.Y)
+				lvl.lineOfSight(p.Div32())
 			}
 		}
 		if j.X > p.X {
@@ -709,6 +815,7 @@ func plyrCollisnHandler(j *Pos, plyr *Charecter, mons *Monster, lvl *Level) {
 			} else {
 				//fmt.Printf("plyr.X -= (18 - j.X + p.X) >=> %v -= (18 - %v + %v),(%v)\n\n", plyr.X, j.X, p.X, (18 - j.X + p.X))
 				plyr.X -= (18 - j.X + p.X)
+				lvl.lineOfSight(p.Div32())
 			}
 		} else if j.X < plyr.X {
 			//fmt.Println("right !canWalk(lvl,", p.RightN(), ")=", !canWalk(lvl, p.RightN()), lvl.Map[p.RightN().Y][p.RightN().X])
@@ -718,6 +825,7 @@ func plyrCollisnHandler(j *Pos, plyr *Charecter, mons *Monster, lvl *Level) {
 			} else {
 				//fmt.Printf("plyr.X += (18 - p.X + j.X) >=> %v += (18 - %v + %v),(%v)\n\n", plyr.X, p.X, j.X, (18 - p.X + j.X))
 				plyr.X += (18 - p.X + j.X)
+				lvl.lineOfSight(p.Div32())
 			}
 		}
 	} else {

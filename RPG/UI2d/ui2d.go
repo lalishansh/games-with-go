@@ -43,7 +43,7 @@ var maxEventBGRWid int32
 
 func NewUI(inputChan chan *game.Input, levelChan chan *game.Level) *ui {
 	ui := &ui{}
-	ui.winWidht, ui.winHeight = 1280, 720
+	ui.winWidht, ui.winHeight = 700, 450
 	ui.zoom = 3
 	ui.str2TexSmll = make(map[string]*sdl.Texture)
 	ui.str2TexMed = make(map[string]*sdl.Texture)
@@ -299,18 +299,28 @@ func (ui *ui) Draw(level *game.Level) {
 			for t := range *ui.MiniAtlas {
 				if tile.Rune == (*ui.MiniAtlas)[t].symbol {
 					r = ui.r.Intn((*ui.MiniAtlas)[t].varCount)
-					if level.Debug[game.Pos{int32(x), int32(y)}] {
-						(*ui.MiniAtlas)[t+r].tex.SetColorMod(128, 0, 0)
-					} else {
-						(*ui.MiniAtlas)[t+r].tex.SetColorMod(255, 255, 255)
-					}
+					//if level.Debug[game.Pos{int32(x), int32(y)}] {
+					//	(*ui.MiniAtlas)[t+r].tex.SetColorMod(128, 0, 0)
+					//} else {
+					//	(*ui.MiniAtlas)[t+r].tex.SetColorMod(255, 255, 255)
+					//}
 					switch tile.Rune {
-					case game.OpenDoor:
-						if tile.Visible {
+					case game.OpenDoor, game.StairUp:
+						//if tile.Visible {
+						(*ui.MiniAtlas)[12].tex.SetColorMod(255, 255, 255)
+						//} else {
+						//	(*ui.MiniAtlas)[12].tex.SetColorMod(100, 100, 100)
+						//}
+						if tile.Seen {
 							ui.renderer.Copy((*ui.MiniAtlas)[12].tex, nil, &dstRect)
 						}
 					}
 					if tile.Visible {
+						(*ui.MiniAtlas)[t+r].tex.SetColorMod(255, 255, 255)
+					} else {
+						(*ui.MiniAtlas)[t+r].tex.SetColorMod(100, 100, 100)
+					}
+					if tile.Seen {
 						ui.renderer.Copy((*ui.MiniAtlas)[t+r].tex, nil, &dstRect)
 					}
 					break
@@ -414,6 +424,8 @@ func (ui *ui) Run() {
 		select {
 		case newLevel, ok := <-ui.levelChan:
 			if ok {
+				ui.centerX = (newLevel.Player.X*ui.zoom - ui.winWidht/2)
+				ui.centerY = (newLevel.Player.Y*ui.zoom - ui.winHeight/2)
 				ui.Draw(newLevel)
 				lvle = newLevel
 			}
@@ -448,3 +460,7 @@ func (ui *ui) Run() {
 		sdl.Delay(5)
 	}
 }
+
+/*
+
+ */
