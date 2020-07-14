@@ -8,7 +8,7 @@ import (
 func main() {
 	//TODO when we need multiple UI support - refctor event-poll into its own component
 	//and run it only on the main thread
-	game := game.NewGame(1, "game/maps/level1.map")
+	game := game.NewGame(1) //, "game/maps/level1.map")
 
 	go func() { game.Run() }()
 

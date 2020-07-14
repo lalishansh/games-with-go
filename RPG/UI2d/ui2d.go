@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/t-RED-69/games-with-go/RPG/game"
+	"github.com/veandco/go-sdl2/mix"
 	"github.com/veandco/go-sdl2/sdl"
 	"github.com/veandco/go-sdl2/ttf"
 )
@@ -83,6 +84,16 @@ func NewUI(inputChan chan *game.Input, levelChan chan *game.Level) *ui {
 	ui.eventBackGr = ui.getSinglePixTex(sdl.Color{0, 0, 0, 100})
 	ui.eventBackGr.SetBlendMode(sdl.BLENDMODE_BLEND)
 	maxEventBGRWid = int32(float32(ui.winWidht) * 0.25)
+
+	err = mix.OpenAudio(22050, mix.DEFAULT_FORMAT, 2, 4096)
+	if err != nil {
+		fmt.Println(err)
+	}
+	mus, err := mix.LoadMUS("UI2D/assets/ambient.ogg")
+	if err != nil {
+		fmt.Println(err)
+	}
+	mus.Play(-1)
 	return ui
 }
 
@@ -267,6 +278,11 @@ func init() {
 		fmt.Println(err)
 		return
 	}
+	err = mix.Init(mix.INIT_OGG)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
 }
 
 //Draw to draw over screen
@@ -405,6 +421,7 @@ func (ui *ui) idexAssignerToAtlas() *[]SpriteTexture {
 }
 func (ui *ui) Run() {
 	var lvle *game.Level
+	var drawn bool
 	for {
 		ui.mouse.ProcessMouse()
 		ProcessKeys(&ui.keyBoard)
@@ -418,19 +435,24 @@ func (ui *ui) Run() {
 				}
 			}
 		}
-		if lvle != nil {
-			ui.Draw(lvle)
-		}
 		select {
 		case newLevel, ok := <-ui.levelChan:
-			if ok {
-				ui.centerX = (newLevel.Player.X*ui.zoom - ui.winWidht/2)
-				ui.centerY = (newLevel.Player.Y*ui.zoom - ui.winHeight/2)
-				ui.Draw(newLevel)
-				lvle = newLevel
+			if drawn = ok; ok {
+				if lvle != newLevel { //recalculating after level change
+					lvle = newLevel
+					ui.centerX = (lvle.Player.X*ui.zoom - ui.winWidht/2)
+					ui.centerY = (lvle.Player.Y*ui.zoom - ui.winHeight/2)
+				}
+				ui.Draw(lvle)
 			}
 		default:
+			drawn = false
 		}
+		//fmt.Println(drawn, ui.centerX != (lvle.Player.X*ui.zoom-ui.winWidht/2) || ui.centerY != (lvle.Player.Y*ui.zoom-ui.winHeight/2))
+		if !drawn && (ui.centerX != (lvle.Player.X*ui.zoom-ui.winWidht/2) || ui.centerY != (lvle.Player.Y*ui.zoom-ui.winHeight/2)) {
+			ui.Draw(lvle)
+		}
+
 		if sdl.GetKeyboardFocus() == ui.window || sdl.GetMouseFocus() == ui.window {
 			input := &game.Input{Typ: game.Blank}
 			if ui.keyBoard[sdl.SCANCODE_DOWN].IsDown {
@@ -450,14 +472,20 @@ func (ui *ui) Run() {
 				input = &game.Input{Typ: game.Search}
 			} else if ui.keyBoard[sdl.SCANCODE_KP_PLUS].Changed && ui.keyBoard[sdl.SCANCODE_KP_PLUS].IsDown {
 				ui.zoom++
+				ui.centerX = (lvle.Player.X*ui.zoom - ui.winWidht/2)
+				ui.centerY = (lvle.Player.Y*ui.zoom - ui.winHeight/2)
+				ui.Draw(lvle)
 			} else if ui.keyBoard[sdl.SCANCODE_KP_MINUS].Changed && ui.keyBoard[sdl.SCANCODE_KP_MINUS].IsDown {
 				ui.zoom--
+				ui.centerX = (lvle.Player.X*ui.zoom - ui.winWidht/2)
+				ui.centerY = (lvle.Player.Y*ui.zoom - ui.winHeight/2)
+				ui.Draw(lvle)
 			}
 			if input.Typ != game.Blank {
 				ui.inputChan <- input
 			}
 		}
-		sdl.Delay(5)
+		sdl.Delay(12)
 	}
 }
 

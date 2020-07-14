@@ -1,8 +1,11 @@
 package game
 
 import (
+	"encoding/csv"
 	"fmt"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	//"github.com/veandco/go-sdl2/sdl"
@@ -11,23 +14,31 @@ import (
 	"os"
 )
 
+var str string
+
 type Game struct {
 	LevelChans []chan *Level
 	InputChan  chan *Input
-	Level      *Level
+	Levels     map[string]*Level
+	CurrLevel  *Level
 }
 
 var lookDirn = Right
 var plyrRootedToGrnd bool
 var idlePosCounter int
 
-func NewGame(numWindows int, levelPath string) *Game {
+func NewGame(numWindows int) *Game {
 	levelChans := make([]chan *Level, numWindows)
 	for i := range levelChans {
 		levelChans[i] = make(chan *Level)
 	}
 	inputChan := make(chan *Input)
-	return &Game{levelChans, inputChan, loadLvlFromFile(levelPath)}
+	lvls := loadLvls()
+	//Temporary
+	game := &Game{levelChans, inputChan, lvls, nil}
+	game.loadWorldFile()
+	game.CurrLevel.lineOfSight(game.CurrLevel.Player.Pos.Div32())
+	return game
 }
 
 type InputType int
@@ -72,6 +83,7 @@ type Level struct {
 	Map      [][]Tile
 	Player   Charecter
 	Monsters []*Monster
+	Portals  map[Pos]levelPos
 	Events   []string //like logs
 	Debug    map[Pos]bool
 }
@@ -94,67 +106,135 @@ type Pos struct {
 
 type priorityArray []priorityPos
 
-//loadLvlFromFile will try to load level provided from "game/maps/" folder
-func loadLvlFromFile(filPth string) (lvl *Level) {
-	file, err := os.Open(filPth) //"game/maps/" + filNam)
+type levelPos struct {
+	level *Level
+	stair Pos
+}
+
+func (game *Game) loadWorldFile() {
+	file, err := os.Open("game/maps/world.txt")
 	if err != nil {
 		panic(err)
 	}
-	scanner := bufio.NewScanner(file)
-	levelLines := make([]string, 0)
-	longestRow := 0
-	index := 0
-	for scanner.Scan() {
-		levelLines = append(levelLines, scanner.Text())
-		if len(levelLines[index]) > longestRow {
-			longestRow = len(levelLines[index])
+	csvReader := csv.NewReader(file)
+	csvReader.FieldsPerRecord = -1
+	csvReader.TrimLeadingSpace = true
+	rows, err := csvReader.ReadAll()
+	if err != nil {
+		panic(err)
+	}
+	for i, row := range rows {
+		if i == 0 {
+			game.CurrLevel = game.Levels[row[0]]
+			continue
 		}
-		index++
+		lvlPortalfrom := row[0]
+		x, err := strconv.ParseInt(row[1], 10, 64)
+		if err != nil {
+			panic(err)
+		}
+		y, err := strconv.ParseInt(row[2], 10, 64)
+		if err != nil {
+			panic(err)
+		}
+		posToPortalfrom := Pos{int32(x), int32(y)}
+		lvlFrom := game.Levels[lvlPortalfrom]
+		if lvlFrom == nil {
+			panic("could'nt find level specified in world file : " + lvlPortalfrom)
+		}
+		lvlPortalTo := row[3]
+		x, err = strconv.ParseInt(row[4], 10, 64)
+		if err != nil {
+			panic(err)
+		}
+		y, err = strconv.ParseInt(row[5], 10, 64)
+		if err != nil {
+			panic(err)
+		}
+		posToPortalTo := Pos{int32(x), int32(y)}
+		lvlTo := game.Levels[lvlPortalTo]
+		if lvlTo == nil {
+			panic("could'nt find level specified in world file : " + lvlPortalTo)
+		}
+		lvlFrom.Portals[posToPortalfrom] = levelPos{lvlTo, posToPortalTo}
 	}
-	level := &Level{}
-	level.Events = make([]string, 0)
-	level.Monsters = make([]*Monster, 0)
-	level.Map = make([][]Tile, len(levelLines))
-	level.Debug = make(map[Pos]bool)
-	for i := range level.Map {
-		level.Map[i] = make([]Tile, longestRow)
+}
+
+//loadLvlFromFile will try to load level provided from "game/maps/" folder
+func loadLvls() map[string]*Level {
+
+	filepaths, err := filepath.Glob("game/maps/*.map")
+	if err != nil {
+		panic(err)
 	}
-	for y := 0; y < len(level.Map); y++ {
-		line := levelLines[y]
-		var t rune
-		for x, e := range line {
-			switch e {
-			case ' ', '\t', '\n', '\r':
-				t = Void
-			case '#':
-				t = StoneWall
-			case '.':
-				t = DirtFloor
-			case '|', '/':
-				t = CloseDoor
-			case 'R':
-				t = DirtFloor
-				level.Monsters = append(level.Monsters, NewRat(int32(x*32), int32(y*32)))
-			case 'S':
-				t = DirtFloor
-				level.Monsters = append(level.Monsters, NewSpider(int32(x*32), int32(y*32)))
-			case '@':
-				t = DirtFloor
-				level.Player.X, level.Player.Y, level.Player.Symbol, level.Player.Speed = int32(x*32), int32(y*32), '@', 3
-				level.Player.Hitpoints, level.Player.Strength, level.Player.sightRange = 200, 4, 5
-			case 'u':
-				t = StairUp
-			case 'd':
-				t = StairDown
-			default:
-				panic("undefined charecter in map")
+	lvls := make(map[string]*Level)
+	for _, filpth := range filepaths {
+		file, err := os.Open(filpth)
+		if err != nil {
+			panic(err)
+		}
+
+		scanner := bufio.NewScanner(file)
+		levelLines := make([]string, 0)
+		longestRow := 0
+		index := 0
+		for scanner.Scan() {
+			levelLines = append(levelLines, scanner.Text())
+			if len(levelLines[index]) > longestRow {
+				longestRow = len(levelLines[index])
 			}
-			level.Map[y][x].Rune = t
-			level.Map[y][x].Visible = false
+			index++
 		}
+		level := &Level{}
+		level.Events = make([]string, 0)
+		level.Monsters = make([]*Monster, 0)
+		level.Map = make([][]Tile, len(levelLines))
+		level.Portals = make(map[Pos]levelPos)
+		level.Debug = make(map[Pos]bool)
+		for i := range level.Map {
+			level.Map[i] = make([]Tile, longestRow)
+		}
+		for y := 0; y < len(level.Map); y++ {
+			line := levelLines[y]
+			var t rune
+			for x, e := range line {
+				switch e {
+				case ' ', '\t', '\n', '\r':
+					t = Void
+				case '#':
+					t = StoneWall
+				case '.':
+					t = DirtFloor
+				case '|', '/':
+					t = CloseDoor
+				case 'R':
+					t = DirtFloor
+					level.Monsters = append(level.Monsters, NewRat(int32(x*32), int32(y*32)))
+				case 'S':
+					t = DirtFloor
+					level.Monsters = append(level.Monsters, NewSpider(int32(x*32), int32(y*32)))
+				case '@':
+					t = DirtFloor
+					level.Player.X, level.Player.Y, level.Player.Symbol, level.Player.Speed = int32(x*32), int32(y*32), '@', 3
+					level.Player.Hitpoints, level.Player.Strength, level.Player.sightRange = 200, 4, 5
+				case 'u':
+					t = StairUp
+				case 'd':
+					t = StairDown
+				default:
+					panic("undefined charecter in map")
+				}
+				level.Map[y][x].Rune = t
+				level.Map[y][x].Visible = false
+			}
+		}
+		extIndex := strings.LastIndex(filpth, ".map")
+		lastSlash := strings.LastIndex(filpth, "\\")
+		levelName := filpth[(lastSlash + 1):extIndex]
+		lvls[levelName] = level
 	}
-	level.lineOfSight(level.Player.Div32())
-	return level
+	//level.lineOfSight(level.Player.Div32())
+	return lvls
 }
 func getNeighbours(level *Level, pos Pos) []Pos {
 	neghbours := make([]Pos, 0, 4)
@@ -188,27 +268,16 @@ func canWalk(level *Level, pos Pos) bool {
 	}
 	return (level.Map[y][x].Rune == DirtFloor || level.Map[y][x].Rune == OpenDoor)
 }
-func canBSeen(level *Level, pos Pos) bool {
-	y := int(pos.Y)
-	x := int(pos.X)
-	//if y < 0 {
-	//	y = 0
-	//}
-	//if y >= int(maxColmSize) {
-	//	y = int(maxColmSize - 1)
-	//}
-	//if x < 0 {
-	//	x = 0
-	//}
-	//if x >= int(maxRowSize) {
-	//	x = int(maxRowSize - 1)
-	//} Note: since perfoming check before function starts no need to do here
-	fmt.Println(x, y)
-	return !(level.Map[x][y].Rune == StoneWall || level.Map[x][y].Rune == CloseDoor || level.Map[x][y].Rune == Void)
-}
+
+//func canBSeen(level *Level, pos Pos) bool {
+//	y := int(pos.Y)
+//	x := int(pos.X)
+//	fmt.Println(x, y)
+//	return !(level.Map[x][y].Rune == StoneWall || level.Map[x][y].Rune == CloseDoor || level.Map[x][y].Rune == Void)
+//}
 func (game *Game) bfs(start Pos) {
 	start = Pos{int32(start.X / 32), int32(start.Y / 32)}
-	level := game.Level
+	level := game.CurrLevel
 	frontier := make([]Pos, 0, 8)
 	frontier = append(frontier, start)
 	visited := make(map[Pos]bool)
@@ -448,7 +517,7 @@ func (lvl *Level) lineOfSight(pos Pos) {
 func (game *Game) astar(start Pos, goal Pos) []Pos {
 	start = Pos{int32(start.X / 32), int32(start.Y / 32)}
 	goal = Pos{int32(goal.X / 32), int32(goal.Y / 32)}
-	lvl := game.Level
+	lvl := game.CurrLevel
 	frontier := make(pqueue, 0, 8)
 	frontier = frontier.push(start, 1)
 	cameFrom := make(map[Pos]Pos)
@@ -496,13 +565,16 @@ func (game *Game) astar(start Pos, goal Pos) []Pos {
 func (game *Game) Run() {
 	fmt.Println("Starting...")
 	for i := range game.LevelChans {
-		game.LevelChans[i] <- game.Level
+		game.LevelChans[i] <- game.CurrLevel
+	}
+	for _, lchan := range game.LevelChans {
+		lchan <- game.CurrLevel
 	}
 	for input := range game.InputChan {
-		for _, j := range game.Level.Monsters {
+		for _, j := range game.CurrLevel.Monsters {
 			j.actionTimer += 15
 		}
-		game.Level.Player.actionTimer += 15
+		game.CurrLevel.Player.actionTimer += 15
 		if input.Typ == QuitGame {
 			return
 		}
@@ -511,17 +583,30 @@ func (game *Game) Run() {
 			return
 		}
 		for _, lchan := range game.LevelChans {
-			lchan <- game.Level
+			lchan <- game.CurrLevel
 		}
 	}
 }
 func (game *Game) LevelManager(input *Input) {
-	p := game.Level.Player.Pos
-	if game.Level.Map[int((p.Y+30)/32)][int((p.X+16)/32)].Rune == StairUp || game.Level.Map[int((p.Y+16)/32)][int((p.X+16)/32)].Rune == StairDown {
-		fmt.Println("newLevel")
+	p := game.CurrLevel.Player.Pos
+	UpdatePlayer(input.Typ, game.CurrLevel)
+	if game.CurrLevel.Map[int((p.Y+16)/32)][int((p.X+16)/32)].Rune == StairUp {
+		fmt.Println("newLevel,pos(stairsUp)", p.Div32())
+		game.CurrLevel.Player.Pos = game.CurrLevel.Portals[p.Div32()].stair.Mult32() //.add(-15, 0)
+		pl := game.CurrLevel.Player
+		game.CurrLevel = game.CurrLevel.Portals[p.Div32()].level
+		game.CurrLevel.Player = pl
+		game.CurrLevel.lineOfSight(game.CurrLevel.Player.Pos.Div32())
+		return
+	} else if game.CurrLevel.Map[int((p.Y+16)/32)][int((p.X+16)/32)].Rune == StairDown {
+		fmt.Println("newLevel,pos(stairsDn)", p.Div32())
+		game.CurrLevel.Player.Pos = game.CurrLevel.Portals[p.Div32()].stair.Mult32() //.add(0, -15)
+		pl := game.CurrLevel.Player
+		game.CurrLevel = game.CurrLevel.Portals[p.Div32()].level
+		game.CurrLevel.Player = pl
+		game.CurrLevel.lineOfSight(game.CurrLevel.Player.Pos.Div32())
 	}
-	plyr := &game.Level.Player
-	UpdatePlayer(input.Typ, game.Level)
+	plyr := &game.CurrLevel.Player
 	if input.Typ == CloseWindow {
 		close(input.LevelChannel)
 		chanIndex := 0
@@ -534,21 +619,21 @@ func (game *Game) LevelManager(input *Input) {
 		game.LevelChans = append(game.LevelChans[:chanIndex], game.LevelChans[chanIndex+1:]...)
 	}
 	var reCalMons = false
-	for _, j := range game.Level.Monsters {
+	for _, j := range game.CurrLevel.Monsters {
 		j.UpdateMons(plyr, game)
 		if (p.Y >= j.Y-22 && p.Y <= j.Y+22) && (p.X >= j.X-22 && p.X <= j.X+22) {
-			plyrCollisnHandler(&j.Pos, plyr, j, game.Level)
+			plyrCollisnHandler(&j.Pos, plyr, j, game.CurrLevel)
 			//hit plyr
 			j.Debug = true
 			if j.actionTimer > int(3000/float32(j.Speed)) {
-				game.Level.Player.Hitpoints -= j.Strength
-				game.Level.Events = append(game.Level.Events, j.Name+" hit player health remaining:"+strconv.Itoa(game.Level.Player.Hitpoints))
-				if len(game.Level.Events) > 12 {
-					game.Level.Events = game.Level.Events[1:]
+				game.CurrLevel.Player.Hitpoints -= j.Strength
+				game.CurrLevel.Events = append(game.CurrLevel.Events, j.Name+" hit player health remaining:"+strconv.Itoa(game.CurrLevel.Player.Hitpoints))
+				if len(game.CurrLevel.Events) > 12 {
+					game.CurrLevel.Events = game.CurrLevel.Events[1:]
 				}
 				j.actionTimer = 0
 			}
-			if game.Level.Player.Hitpoints <= 0 {
+			if game.CurrLevel.Player.Hitpoints <= 0 {
 				//kill plyr
 				//
 				//game over
@@ -559,63 +644,63 @@ func (game *Game) LevelManager(input *Input) {
 				if lookDirn == Up && p.Y > j.Y {
 					j.Hitpoints -= plyr.Strength
 					if j.Hitpoints > 0 {
-						game.Level.Events = append(game.Level.Events, "player hit "+j.Name+" up its hlth remaining:"+strconv.Itoa(j.Hitpoints))
+						game.CurrLevel.Events = append(game.CurrLevel.Events, "player hit "+j.Name+" up its hlth remaining:"+strconv.Itoa(j.Hitpoints))
 					} else {
-						game.Level.Events = append(game.Level.Events, "player Killed "+j.Name)
+						game.CurrLevel.Events = append(game.CurrLevel.Events, "player Killed "+j.Name)
 					}
-					if len(game.Level.Events) > 12 {
-						game.Level.Events = game.Level.Events[1:]
+					if len(game.CurrLevel.Events) > 12 {
+						game.CurrLevel.Events = game.CurrLevel.Events[1:]
 					}
 				} else if lookDirn == Down && p.Y < j.Y {
 					j.Hitpoints -= plyr.Strength
 					if j.Hitpoints > 0 {
-						game.Level.Events = append(game.Level.Events, "player hit "+j.Name+" down its hlth remaining:"+strconv.Itoa(j.Hitpoints))
+						game.CurrLevel.Events = append(game.CurrLevel.Events, "player hit "+j.Name+" down its hlth remaining:"+strconv.Itoa(j.Hitpoints))
 					} else {
-						game.Level.Events = append(game.Level.Events, "player Killed "+j.Name)
+						game.CurrLevel.Events = append(game.CurrLevel.Events, "player Killed "+j.Name)
 					}
-					if len(game.Level.Events) > 12 {
-						game.Level.Events = game.Level.Events[1:]
+					if len(game.CurrLevel.Events) > 12 {
+						game.CurrLevel.Events = game.CurrLevel.Events[1:]
 					}
 				} else if lookDirn == Right && p.X < j.X {
 					j.Hitpoints -= plyr.Strength
 					if j.Hitpoints > 0 {
-						game.Level.Events = append(game.Level.Events, "player hit "+j.Name+" right its hlth remaining:"+strconv.Itoa(j.Hitpoints))
+						game.CurrLevel.Events = append(game.CurrLevel.Events, "player hit "+j.Name+" right its hlth remaining:"+strconv.Itoa(j.Hitpoints))
 					} else {
-						game.Level.Events = append(game.Level.Events, "player Killed "+j.Name)
+						game.CurrLevel.Events = append(game.CurrLevel.Events, "player Killed "+j.Name)
 					}
-					if len(game.Level.Events) > 12 {
-						game.Level.Events = game.Level.Events[1:]
+					if len(game.CurrLevel.Events) > 12 {
+						game.CurrLevel.Events = game.CurrLevel.Events[1:]
 					}
 				} else if lookDirn == Left && p.X > j.X {
 					j.Hitpoints -= plyr.Strength
 					if j.Hitpoints > 0 {
-						game.Level.Events = append(game.Level.Events, "player hit "+j.Name+" left its hlth remaining:"+strconv.Itoa(j.Hitpoints))
+						game.CurrLevel.Events = append(game.CurrLevel.Events, "player hit "+j.Name+" left its hlth remaining:"+strconv.Itoa(j.Hitpoints))
 					} else {
-						game.Level.Events = append(game.Level.Events, "player Killed "+j.Name)
+						game.CurrLevel.Events = append(game.CurrLevel.Events, "player Killed "+j.Name)
 					}
-					if len(game.Level.Events) > 12 {
-						game.Level.Events = game.Level.Events[1:]
+					if len(game.CurrLevel.Events) > 12 {
+						game.CurrLevel.Events = game.CurrLevel.Events[1:]
 					}
 				}
-				game.Level.Player.actionTimer = 0
+				game.CurrLevel.Player.actionTimer = 0
 			}
 			//killing after loop
 			if j.Hitpoints <= 0 {
 				reCalMons = true
 			}
-			//plyrCollisnHandler(&j.Pos, plyr, j, game.Level)
+			//plyrCollisnHandler(&j.Pos, plyr, j, game.CurrLevel)
 		} else {
 			j.Debug = false
 		}
 	}
 	if reCalMons {
 		aliveMonsters := make([]*Monster, 0)
-		for _, j := range game.Level.Monsters {
+		for _, j := range game.CurrLevel.Monsters {
 			if j.Hitpoints > 0 {
 				aliveMonsters = append(aliveMonsters, j)
 			}
 		}
-		game.Level.Monsters = aliveMonsters
+		game.CurrLevel.Monsters = aliveMonsters
 		plyrRootedToGrnd = false
 		idlePosCounter = 0
 	}
@@ -623,7 +708,7 @@ func (game *Game) LevelManager(input *Input) {
 func (monstr *Monster) UpdateMons(plyr *Charecter, game *Game) {
 	if monstr.activ {
 		posns := game.astar(monstr.Pos, Pos{plyr.Pos.X + 16, plyr.Pos.Y + 16})
-		if len(posns) > 3 && canWalk(game.Level, posns[3]) {
+		if len(posns) > 3 && canWalk(game.CurrLevel, posns[3]) {
 			if posns[3].Y*32 < monstr.Y {
 				monstr.Y -= monstr.Speed
 			}
@@ -637,7 +722,7 @@ func (monstr *Monster) UpdateMons(plyr *Charecter, game *Game) {
 				monstr.X -= monstr.Speed
 			}
 			//fmt.Println(posns[1], monstr.Pos)
-		} else if len(posns) > 2 && canWalk(game.Level, posns[2]) {
+		} else if len(posns) > 2 && canWalk(game.CurrLevel, posns[2]) {
 			if posns[2].X*32 > monstr.X {
 				monstr.X += monstr.Speed
 			}
@@ -666,19 +751,19 @@ func (monstr *Monster) UpdateMons(plyr *Charecter, game *Game) {
 			}
 			//fmt.Println(posns[1], monstr.Pos)
 		}
-		if game.Level.Map[(monstr.Y+16)/32][monstr.X/32].Rune == StoneWall {
+		if game.CurrLevel.Map[(monstr.Y+16)/32][monstr.X/32].Rune == StoneWall {
 			monstr.X += monstr.Speed
 		}
-		if game.Level.Map[(monstr.Y+16)/32][(monstr.X+30)/32].Rune == StoneWall {
+		if game.CurrLevel.Map[(monstr.Y+16)/32][(monstr.X+30)/32].Rune == StoneWall {
 			monstr.X -= monstr.Speed
 		}
-		if game.Level.Map[monstr.Y/32][(monstr.X+16)/32].Rune == StoneWall {
+		if game.CurrLevel.Map[monstr.Y/32][(monstr.X+16)/32].Rune == StoneWall {
 			monstr.Y += monstr.Speed
 		}
-		if game.Level.Map[(monstr.Y+30)/32][(monstr.X+16)/32].Rune == StoneWall {
+		if game.CurrLevel.Map[(monstr.Y+30)/32][(monstr.X+16)/32].Rune == StoneWall {
 			monstr.Y -= monstr.Speed
 		}
-		for _, x := range game.Level.Monsters {
+		for _, x := range game.CurrLevel.Monsters {
 			if monstr == x {
 				continue
 			} else {
@@ -696,7 +781,7 @@ func (monstr *Monster) UpdateMons(plyr *Charecter, game *Game) {
 				}
 			}
 		}
-		if game.Level.Map[(monstr.Y+16)/32][monstr.X/32].Rune == StoneWall {
+		if game.CurrLevel.Map[(monstr.Y+16)/32][monstr.X/32].Rune == StoneWall {
 			monstr.X += monstr.Speed
 		}
 	}
@@ -781,49 +866,41 @@ func (pos Pos) Div32() Pos {
 	pos.Y = (pos.Y + 16) / 32
 	return pos
 }
+func (pos Pos) Mult32() Pos {
+	pos.X = pos.X * 32
+	pos.Y = pos.Y * 32
+	return pos
+}
 func plyrCollisnHandler(j *Pos, plyr *Charecter, mons *Monster, lvl *Level) {
 	p := plyr.Pos
 	if (j.X-p.X < 18 && j.X-p.X > -18) && (j.Y-p.Y < 18 && j.Y-p.Y > -18) {
 		mons.Debug2 = true
 		if j.Y > p.Y {
-			//fmt.Println("!canWalk(lvl,", p.UpN(), ")=", !canWalk(lvl, p.UpN()), lvl.Map[p.UpN().Y][p.UpN().X])
 			if !canWalk(lvl, p.UpN()) || plyrRootedToGrnd {
-				//fmt.Printf("j.Y += (18 - j.Y + p.Y) >=> %v += (18 - %v + %v),(%v)\n\n", j.Y, j.Y, p.Y, (18 - j.Y + p.Y))
 				j.Y += (18 - j.Y + p.Y)
-				//fmt.Println("j.Pos :", j)
 			} else {
-				//fmt.Printf("up plyr.Y -= (18 - j.Y + p.Y) >=> %v -= (18 - %v + %v),(%v)\n\n", plyr.Y, j.Y, p.Y, (18 - j.Y + p.Y))
 				plyr.Y -= (18 - j.Y + p.Y)
 				lvl.lineOfSight(p.Div32())
 			}
 		} else if j.Y < plyr.Y {
-			//fmt.Println("down !canWalk(lvl,", p.DownN(), ")=", !canWalk(lvl, p.DownN()), lvl.Map[p.DownN().Y][p.DownN().X])
 			if !canWalk(lvl, p.DownN()) || plyrRootedToGrnd {
-				//fmt.Printf("j.Y -= (18 - p.Y + j.Y) >=> %v -= (18 - %v + %v),(%v)\n\n", j.Y, p.Y, j.Y, (18 - p.Y + j.Y))
 				j.Y -= (18 - p.Y + j.Y)
 			} else {
-				//fmt.Printf("plyr.Y += (18 - p.Y + j.Y) >=> %v += (18 - %v + %v),(%v)\n\n", plyr.Y, p.Y, j.Y, (18 - p.Y + j.Y))
 				plyr.Y += (18 - p.Y + j.Y)
 				lvl.lineOfSight(p.Div32())
 			}
 		}
 		if j.X > p.X {
-			//fmt.Println("left !canWalk(lvl,", p.LeftN(), ")=", !canWalk(lvl, p.LeftN()), lvl.Map[p.LeftN().Y][p.LeftN().X])
 			if !canWalk(lvl, p.LeftN()) || plyrRootedToGrnd {
-				//fmt.Printf("j.X += (18 - j.X + p.X) >=> %v += (18 - %v + %v),(%v)\n\n", j.X, j.X, p.X, (18 - j.X + p.X))
 				j.X += (18 - j.X + p.X)
 			} else {
-				//fmt.Printf("plyr.X -= (18 - j.X + p.X) >=> %v -= (18 - %v + %v),(%v)\n\n", plyr.X, j.X, p.X, (18 - j.X + p.X))
 				plyr.X -= (18 - j.X + p.X)
 				lvl.lineOfSight(p.Div32())
 			}
 		} else if j.X < plyr.X {
-			//fmt.Println("right !canWalk(lvl,", p.RightN(), ")=", !canWalk(lvl, p.RightN()), lvl.Map[p.RightN().Y][p.RightN().X])
 			if !canWalk(lvl, p.RightN()) || plyrRootedToGrnd {
-				//fmt.Printf("j.X -= (18 - p.X + j.X) >=> %v -= (18 - %v + %v),(%v)\n\n", j.X, p.X, j.X, (18 - p.X + j.X))
 				j.X -= (18 - p.X + j.X)
 			} else {
-				//fmt.Printf("plyr.X += (18 - p.X + j.X) >=> %v += (18 - %v + %v),(%v)\n\n", plyr.X, p.X, j.X, (18 - p.X + j.X))
 				plyr.X += (18 - p.X + j.X)
 				lvl.lineOfSight(p.Div32())
 			}
@@ -832,35 +909,3 @@ func plyrCollisnHandler(j *Pos, plyr *Charecter, mons *Monster, lvl *Level) {
 		mons.Debug2 = false
 	}
 }
-
-/*
-if (p.Y > j.Y-18 && p.Y < j.Y+18) && (p.X > j.X-18 && p.X < j.X+18) {
-				if p.Y < j.Y {
-					if canWalk(game.Level, game.Level.Player.Pos.UpN()) {
-						j.Y += p.Speed
-					} else {
-						game.Level.Player.Y -= p.Speed
-					}
-					//fmt.Println("UP plyr:", p.Pos, ", Mons:", j.X, j.Y)
-				} else {
-					if canWalk(game.Level, game.Level.Player.Pos.DownN()) {
-						j.Y -= p.Speed
-					} else {
-						game.Level.Player.Y += p.Speed
-					} //fmt.Println("Down plyr:", p.Pos, ", Mons:", j.X, j.Y)
-				}
-				if p.X < j.X {
-					if canWalk(game.Level, game.Level.Player.Pos.RightN()) {
-						j.X += p.Speed
-					} else {
-						game.Level.Player.X -= p.Speed
-					} //fmt.Println("LEFT plyr:", p.Pos, ", Mons:", j.X, j.Y)
-				} else {
-					if canWalk(game.Level, game.Level.Player.Pos.LeftN()) {
-						j.X -= p.Speed
-					} else {
-						game.Level.Player.X += p.Speed
-					} //fmt.Println("Right plyr:", p.Pos, ", Mons:", j.X, j.Y)
-				}
-			}
-*/
