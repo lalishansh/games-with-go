@@ -8,10 +8,11 @@ import (
 	"strings"
 	"time"
 
-	//"github.com/veandco/go-sdl2/sdl"
 	"bufio"
 	"math"
 	"os"
+
+	"github.com/t-RED-69/games-with-go/RPG/UI2d/sound"
 )
 
 var str string
@@ -33,6 +34,9 @@ func NewGame(numWindows int) *Game {
 		levelChans[i] = make(chan *Level)
 	}
 	inputChan := make(chan *Input)
+
+	sound.NewSI()
+
 	lvls := loadLvls()
 	//Temporary
 	game := &Game{levelChans, inputChan, lvls, nil}
@@ -333,7 +337,6 @@ func (level *Level) bresenhum(start Pos, end Pos) {
 	if start.Y >= end.Y {
 		ystep = -1 // Reverse it when we step
 	}
-
 	// Are we on the left or right side of graph
 	if start.X > end.X {
 		deltaX := start.X - end.X // We know start.X will be larger than end.X
@@ -632,6 +635,7 @@ func (game *Game) LevelManager(input *Input) {
 					game.CurrLevel.Events = game.CurrLevel.Events[1:]
 				}
 				j.actionTimer = 0
+				sound.Play(sound.EnmyHitINT, j.Name, 'a')
 			}
 			if game.CurrLevel.Player.Hitpoints <= 0 {
 				//kill plyr
@@ -640,7 +644,8 @@ func (game *Game) LevelManager(input *Input) {
 				panic("you died")
 			}
 			//hit monster
-			if plyr.actionTimer > int(3000/float32(plyr.Speed)) {
+			if plyr.actionTimer > int(3500/float32(plyr.Speed)) {
+				sound.Play(sound.PlyrHitINT, "", 0)
 				if lookDirn == Up && p.Y > j.Y {
 					j.Hitpoints -= plyr.Strength
 					if j.Hitpoints > 0 {
@@ -682,10 +687,12 @@ func (game *Game) LevelManager(input *Input) {
 						game.CurrLevel.Events = game.CurrLevel.Events[1:]
 					}
 				}
+				sound.Play(sound.EnmyHitINT, j.Name, 'h')
 				game.CurrLevel.Player.actionTimer = 0
 			}
 			//killing after loop
 			if j.Hitpoints <= 0 {
+				sound.Play(sound.EnmyHitINT, j.Name, 'd')
 				reCalMons = true
 			}
 			//plyrCollisnHandler(&j.Pos, plyr, j, game.CurrLevel)
@@ -792,28 +799,39 @@ func UpdatePlayer(input InputType, lvl *Level) {
 	if input == Up && (lvl.Map[int((p.Y-1)/32)][int((p.X+16)/32)].Rune == DirtFloor || lvl.Map[int((p.Y-1)/32)][int((p.X+16)/32)].Rune == OpenDoor || lvl.Map[int((p.Y-1)/32)][int((p.X+16)/32)].Rune == StairUp || lvl.Map[int((p.Y-1)/32)][int((p.X+16)/32)].Rune == StairDown) {
 		lvl.Player.Y -= p.Speed
 		lvl.lineOfSight(p.Pos.Div32())
+		sound.Play(sound.FootstpsINT, "", 0)
 		lookDirn = Up
 	} else if input == Down && (lvl.Map[int((p.Y+1)/32)+1][int((p.X+16)/32)].Rune == DirtFloor || lvl.Map[int((p.Y+1)/32)+1][int((p.X+16)/32)].Rune == OpenDoor || lvl.Map[int((p.Y+1)/32)+1][int((p.X+16)/32)].Rune == StairUp || lvl.Map[int((p.Y+1)/32)+1][int((p.X+16)/32)].Rune == StairDown) {
 		lvl.Player.Y += p.Speed
 		lvl.lineOfSight(p.Pos.Div32())
+		sound.Play(sound.FootstpsINT, "", 0)
 		lookDirn = Down
 	} else if input == Right && (lvl.Map[int((p.Y+16)/32)][int((p.X+1)/32)+1].Rune == DirtFloor || lvl.Map[int((p.Y+16)/32)][int((p.X+1)/32)+1].Rune == OpenDoor || lvl.Map[int((p.Y+16)/32)][int((p.X+1)/32)+1].Rune == StairUp || lvl.Map[int((p.Y+16)/32)][int((p.X+1)/32)+1].Rune == StairDown) {
 		lvl.Player.X += p.Speed
 		lvl.lineOfSight(p.Pos.Div32())
+		sound.Play(sound.FootstpsINT, "", 0)
 		lookDirn = Right
 	} else if input == Left && (lvl.Map[int((p.Y+16)/32)][int((p.X-1)/32)].Rune == DirtFloor || lvl.Map[int((p.Y+16)/32)][int((p.X-1)/32)].Rune == OpenDoor || lvl.Map[int((p.Y+16)/32)][int((p.X-1)/32)].Rune == StairUp || lvl.Map[int((p.Y+16)/32)][int((p.X-1)/32)].Rune == StairDown) {
 		lvl.Player.X -= p.Speed
 		lvl.lineOfSight(p.Pos.Div32())
+		sound.Play(sound.FootstpsINT, "", 0)
 		lookDirn = Left
-	} else if input == Open {
+	} else {
+		sound.HaltSounds(sound.FootstpsINT)
+	}
+	if input == Open {
 		if lvl.Map[int((p.Y-1)/32)][int((p.X+16)/32)].Rune == CloseDoor {
 			lvl.Map[int((p.Y-1)/32)][int((p.X+16)/32)].Rune = OpenDoor
+			sound.Play(sound.DoorOpnINT, "", 0)
 		} else if lvl.Map[int((p.Y+1)/32)+1][int((p.X+16)/32)].Rune == CloseDoor {
 			lvl.Map[int((p.Y+1)/32)+1][int((p.X+16)/32)].Rune = OpenDoor
+			sound.Play(sound.DoorOpnINT, "", 0)
 		} else if lvl.Map[int((p.Y+16)/32)][int((p.X+1)/32)+1].Rune == CloseDoor {
 			lvl.Map[int((p.Y+16)/32)][int((p.X+1)/32)+1].Rune = OpenDoor
+			sound.Play(sound.DoorOpnINT, "", 0)
 		} else if lvl.Map[int((p.Y+16)/32)][int((p.X-1)/32)].Rune == CloseDoor {
 			lvl.Map[int((p.Y+16)/32)][int((p.X-1)/32)].Rune = OpenDoor
+			sound.Play(sound.DoorOpnINT, "", 0)
 		}
 	} else if input == EmptySpace {
 		idlePosCounter++

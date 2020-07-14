@@ -1,5 +1,7 @@
 package game
 
+import "github.com/t-RED-69/games-with-go/RPG/UI2d/sound"
+
 type Monster struct {
 	Charecter
 	Debug  bool
@@ -17,6 +19,9 @@ func NewRat(x, y int32) *Monster {
 	monstr.Speed = 5
 	monstr.sightRange = 10
 	monstr.activ = true
+	if sound.SFX.EnemySnd[monstr.Name] == nil {
+		sound.SFX.EnemySnd[monstr.Name] = sound.CharectorScrems(monstr.Name, 30)
+	}
 	return monstr
 }
 func NewSpider(x, y int32) *Monster {
@@ -29,5 +34,8 @@ func NewSpider(x, y int32) *Monster {
 	monstr.Speed = 2
 	monstr.sightRange = 10
 	monstr.activ = true
+	if sound.SFX.EnemySnd[monstr.Name] == nil {
+		sound.SFX.EnemySnd[monstr.Name] = sound.CharectorScrems(monstr.Name, 30)
+	}
 	return monstr
 }

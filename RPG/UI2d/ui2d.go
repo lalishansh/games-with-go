@@ -10,10 +10,11 @@ import (
 	"strings"
 
 	"github.com/t-RED-69/games-with-go/RPG/game"
-	"github.com/veandco/go-sdl2/mix"
 	"github.com/veandco/go-sdl2/sdl"
 	"github.com/veandco/go-sdl2/ttf"
 )
+
+var randSRC *rand.Rand
 
 type ui struct {
 	winWidht, winHeight int32
@@ -39,6 +40,13 @@ type ui struct {
 	//
 	eventBackGr *sdl.Texture
 }
+
+const (
+	DoorOpnINT int = iota
+	FootstpsINT
+	EnmyHitINT
+	PlyrHitINT
+)
 
 var maxEventBGRWid int32
 
@@ -85,15 +93,6 @@ func NewUI(inputChan chan *game.Input, levelChan chan *game.Level) *ui {
 	ui.eventBackGr.SetBlendMode(sdl.BLENDMODE_BLEND)
 	maxEventBGRWid = int32(float32(ui.winWidht) * 0.25)
 
-	err = mix.OpenAudio(22050, mix.DEFAULT_FORMAT, 2, 4096)
-	if err != nil {
-		fmt.Println(err)
-	}
-	mus, err := mix.LoadMUS("UI2D/assets/ambient.ogg")
-	if err != nil {
-		fmt.Println(err)
-	}
-	mus.Play(-1)
 	return ui
 }
 
@@ -278,11 +277,6 @@ func init() {
 		fmt.Println(err)
 		return
 	}
-	err = mix.Init(mix.INIT_OGG)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
 }
 
 //Draw to draw over screen
@@ -381,7 +375,7 @@ func (ui *ui) Draw(level *game.Level) {
 	}
 	//
 	ui.renderer.Present()
-	sdl.Delay(10)
+	sdl.Delay(9)
 }
 
 func (ui *ui) idexAssignerToAtlas() *[]SpriteTexture {
@@ -485,10 +479,36 @@ func (ui *ui) Run() {
 				ui.inputChan <- input
 			}
 		}
-		sdl.Delay(12)
+		sdl.Delay(10)
 	}
 }
 
 /*
+func Play(Sound int, str string) {
+	var snd *mix.Chunk
+	switch Sound {
+	case DoorOpnINT:
+		snd = uI.SFX.DoorOpen
+	case FootstpsINT:
+		PlayMrand(uI.SFX.Footsteps, FootstpsINT)
+		return
+	case EnmyHitINT:
+		snd = uI.SFX.EnemyHit[str]
+	case PlyrHitINT:
+		snd = uI.SFX.PlyrHit
+	}
+	snd.Play(Sound, 0)
+}
+func HaltSounds(channel int) {
+	mix.HaltChannel(channel)
+}
+func PlayMrand(snd []*mix.Chunk, channel int) {
+	//rand.Rand.Seed(time.Now().UnixNano())
+	randSRC.Seed(time.Now().UnixNano())
+	ra := randSRC.Intn(6)
+	snd[ra].Play(channel, 0)
+}
 
- */
+/*
+
+*/
