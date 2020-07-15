@@ -24,7 +24,7 @@ type Game struct {
 	CurrLevel  *Level
 }
 
-var lookDirn = Right
+var LookDirn = Right
 var plyrRootedToGrnd bool
 var idlePosCounter int
 
@@ -54,6 +54,7 @@ const (
 	Left
 	Right
 	Open
+	Pickup
 	QuitGame
 	CloseWindow
 	Search
@@ -80,6 +81,8 @@ const (
 	Player         = '@'
 	StairUp        = 'u'
 	StairDown      = 'd'
+	Sword          = 's'
+	Helmet         = 'h'
 )
 
 //Level infor. for game
@@ -87,6 +90,7 @@ type Level struct {
 	Map      [][]Tile
 	Player   Charecter
 	Monsters []*Monster
+	Items    []*Item
 	Portals  map[Pos]levelPos
 	Events   []string //like logs
 	Debug    map[Pos]bool
@@ -103,6 +107,7 @@ type Charecter struct {
 	Speed       int32
 	actionTimer int // for attack sequence formulae[ actionTimer > int(3000/float32(j.Speed)) ]
 	sightRange  int32
+	Items       []*Item
 }
 type Pos struct {
 	X, Y int32
@@ -217,6 +222,12 @@ func loadLvls() map[string]*Level {
 				case 'S':
 					t = DirtFloor
 					level.Monsters = append(level.Monsters, NewSpider(int32(x*32), int32(y*32)))
+				case 's':
+					t = DirtFloor
+					level.Items = append(level.Items, NewSword(Pos{int32(x * 32), int32(y * 32)}))
+				case 'h':
+					t = DirtFloor
+					level.Items = append(level.Items, NewHelmet(Pos{int32(x * 32), int32(y * 32)}))
 				case '@':
 					t = DirtFloor
 					level.Player.X, level.Player.Y, level.Player.Symbol, level.Player.Speed = int32(x*32), int32(y*32), '@', 3
@@ -517,6 +528,45 @@ func (lvl *Level) lineOfSight(pos Pos) {
 		//fmt.Println()
 	}
 }
+func (char *Charecter) dropItem(itemN string, lvl *Level) {
+	for i, j := range char.Items {
+		if j.Name == itemN {
+			switch LookDirn {
+			case Up:
+				j.Pos = char.Pos.add(0, -18)
+			case Down:
+				j.Pos = char.Pos.add(0, 18)
+			case Right:
+				j.Pos = char.Pos.add(18, 0)
+			case Left:
+				j.Pos = char.Pos.add(-18, 0)
+			}
+			lvl.Items = append(lvl.Items, j)
+			//
+			//copy(char.Items[i:], char.Items[i+1:])      // Shift a[i+1:] left one index.
+			//char.Items[len(char.Items)-1] = nil         // Erase last element (write zero value).
+			//char.Items = char.Items[:len(char.Items)-1] // Truncate slice.
+			//OR
+			char.Items = append(char.Items[:i], char.Items[i+1:]...) //1st shortens length of slice(not capacity)//2nd appends new elements 1 by 1(allocates new memory if "length > capacity",otherwise same MEM location [like^ above one, just this is shorter syntax])
+			break
+		}
+	}
+	//update stats too
+}
+func (char *Charecter) pickupItem(itemN string, lvl *Level) {
+	for i, j := range lvl.Items {
+		if j.Name == itemN {
+			char.Items = append(char.Items, j)
+			//copy(lvl.Items[i:], lvl.Items[i+1:])     // Shift a[i+1:] left one index.
+			//lvl.Items[len(lvl.Items)-1] = nil        // Erase last element (write zero value).
+			//lvl.Items = lvl.Items[:len(lvl.Items)-1] // Truncate slice.
+			// OR
+			lvl.Items = append(lvl.Items[:i], lvl.Items[i+1:]...)
+			break
+		}
+	}
+	//update stats too
+}
 func (game *Game) astar(start Pos, goal Pos) []Pos {
 	start = Pos{int32(start.X / 32), int32(start.Y / 32)}
 	goal = Pos{int32(goal.X / 32), int32(goal.Y / 32)}
@@ -621,10 +671,19 @@ func (game *Game) LevelManager(input *Input) {
 		}
 		game.LevelChans = append(game.LevelChans[:chanIndex], game.LevelChans[chanIndex+1:]...)
 	}
+	for _, j := range game.CurrLevel.Items {
+		if game.CurrLevel.Player.Pos.Div32() == j.Pos.Div32() {
+			if input.Typ == Pickup {
+				plyr.pickupItem(j.Name, game.CurrLevel)
+				game.CurrLevel.Events = append(game.CurrLevel.Events, "Picked up "+j.Name)
+				break
+			}
+		}
+	}
 	var reCalMons = false
 	for _, j := range game.CurrLevel.Monsters {
 		j.UpdateMons(plyr, game)
-		if (p.Y >= j.Y-22 && p.Y <= j.Y+22) && (p.X >= j.X-22 && p.X <= j.X+22) {
+		if (p.Y >= j.Y-26 && p.Y <= j.Y+22) && (p.X >= j.X-22 && p.X <= j.X+22) {
 			plyrCollisnHandler(&j.Pos, plyr, j, game.CurrLevel)
 			//hit plyr
 			j.Debug = true
@@ -646,7 +705,7 @@ func (game *Game) LevelManager(input *Input) {
 			//hit monster
 			if plyr.actionTimer > int(3500/float32(plyr.Speed)) {
 				sound.Play(sound.PlyrHitINT, "", 0)
-				if lookDirn == Up && p.Y > j.Y {
+				if LookDirn == Up && p.Y > j.Y {
 					j.Hitpoints -= plyr.Strength
 					if j.Hitpoints > 0 {
 						game.CurrLevel.Events = append(game.CurrLevel.Events, "player hit "+j.Name+" up its hlth remaining:"+strconv.Itoa(j.Hitpoints))
@@ -656,7 +715,7 @@ func (game *Game) LevelManager(input *Input) {
 					if len(game.CurrLevel.Events) > 12 {
 						game.CurrLevel.Events = game.CurrLevel.Events[1:]
 					}
-				} else if lookDirn == Down && p.Y < j.Y {
+				} else if LookDirn == Down && p.Y < j.Y {
 					j.Hitpoints -= plyr.Strength
 					if j.Hitpoints > 0 {
 						game.CurrLevel.Events = append(game.CurrLevel.Events, "player hit "+j.Name+" down its hlth remaining:"+strconv.Itoa(j.Hitpoints))
@@ -666,7 +725,7 @@ func (game *Game) LevelManager(input *Input) {
 					if len(game.CurrLevel.Events) > 12 {
 						game.CurrLevel.Events = game.CurrLevel.Events[1:]
 					}
-				} else if lookDirn == Right && p.X < j.X {
+				} else if LookDirn == Right && p.X < j.X {
 					j.Hitpoints -= plyr.Strength
 					if j.Hitpoints > 0 {
 						game.CurrLevel.Events = append(game.CurrLevel.Events, "player hit "+j.Name+" right its hlth remaining:"+strconv.Itoa(j.Hitpoints))
@@ -676,7 +735,7 @@ func (game *Game) LevelManager(input *Input) {
 					if len(game.CurrLevel.Events) > 12 {
 						game.CurrLevel.Events = game.CurrLevel.Events[1:]
 					}
-				} else if lookDirn == Left && p.X > j.X {
+				} else if LookDirn == Left && p.X > j.X {
 					j.Hitpoints -= plyr.Strength
 					if j.Hitpoints > 0 {
 						game.CurrLevel.Events = append(game.CurrLevel.Events, "player hit "+j.Name+" left its hlth remaining:"+strconv.Itoa(j.Hitpoints))
@@ -693,6 +752,9 @@ func (game *Game) LevelManager(input *Input) {
 			//killing after loop
 			if j.Hitpoints <= 0 {
 				sound.Play(sound.EnmyHitINT, j.Name, 'd')
+				for _, i := range j.Items {
+					j.dropItem(i.Name, game.CurrLevel)
+				}
 				reCalMons = true
 			}
 			//plyrCollisnHandler(&j.Pos, plyr, j, game.CurrLevel)
@@ -800,22 +862,22 @@ func UpdatePlayer(input InputType, lvl *Level) {
 		lvl.Player.Y -= p.Speed
 		lvl.lineOfSight(p.Pos.Div32())
 		sound.Play(sound.FootstpsINT, "", 0)
-		lookDirn = Up
+		LookDirn = Up
 	} else if input == Down && (lvl.Map[int((p.Y+1)/32)+1][int((p.X+16)/32)].Rune == DirtFloor || lvl.Map[int((p.Y+1)/32)+1][int((p.X+16)/32)].Rune == OpenDoor || lvl.Map[int((p.Y+1)/32)+1][int((p.X+16)/32)].Rune == StairUp || lvl.Map[int((p.Y+1)/32)+1][int((p.X+16)/32)].Rune == StairDown) {
 		lvl.Player.Y += p.Speed
 		lvl.lineOfSight(p.Pos.Div32())
 		sound.Play(sound.FootstpsINT, "", 0)
-		lookDirn = Down
+		LookDirn = Down
 	} else if input == Right && (lvl.Map[int((p.Y+16)/32)][int((p.X+1)/32)+1].Rune == DirtFloor || lvl.Map[int((p.Y+16)/32)][int((p.X+1)/32)+1].Rune == OpenDoor || lvl.Map[int((p.Y+16)/32)][int((p.X+1)/32)+1].Rune == StairUp || lvl.Map[int((p.Y+16)/32)][int((p.X+1)/32)+1].Rune == StairDown) {
 		lvl.Player.X += p.Speed
 		lvl.lineOfSight(p.Pos.Div32())
 		sound.Play(sound.FootstpsINT, "", 0)
-		lookDirn = Right
+		LookDirn = Right
 	} else if input == Left && (lvl.Map[int((p.Y+16)/32)][int((p.X-1)/32)].Rune == DirtFloor || lvl.Map[int((p.Y+16)/32)][int((p.X-1)/32)].Rune == OpenDoor || lvl.Map[int((p.Y+16)/32)][int((p.X-1)/32)].Rune == StairUp || lvl.Map[int((p.Y+16)/32)][int((p.X-1)/32)].Rune == StairDown) {
 		lvl.Player.X -= p.Speed
 		lvl.lineOfSight(p.Pos.Div32())
 		sound.Play(sound.FootstpsINT, "", 0)
-		lookDirn = Left
+		LookDirn = Left
 	} else {
 		sound.HaltSounds(sound.FootstpsINT)
 	}
@@ -891,7 +953,7 @@ func (pos Pos) Mult32() Pos {
 }
 func plyrCollisnHandler(j *Pos, plyr *Charecter, mons *Monster, lvl *Level) {
 	p := plyr.Pos
-	if (j.X-p.X < 18 && j.X-p.X > -18) && (j.Y-p.Y < 18 && j.Y-p.Y > -18) {
+	if (j.X-p.X < 18 && j.X-p.X > -18) && (j.Y-p.Y < 22 && j.Y-p.Y > -18) {
 		mons.Debug2 = true
 		if j.Y > p.Y {
 			if !canWalk(lvl, p.UpN()) || plyrRootedToGrnd {

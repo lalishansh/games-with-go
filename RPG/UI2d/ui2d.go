@@ -24,7 +24,7 @@ type ui struct {
 	zoom                int32
 	centerX, centerY    int32
 	textureAtlas        *[]SpriteTexture
-	MiniAtlas           *[]SpriteTexture
+	MiniAtlas           map[rune][]*SpriteTexture
 	mouse               MouseState
 	keyBoard            []KeyStates
 	r                   *rand.Rand
@@ -38,7 +38,8 @@ type ui struct {
 	str2TexMed  map[string]*sdl.Texture
 	str2TexLarg map[string]*sdl.Texture
 	//
-	eventBackGr *sdl.Texture
+	eventBackGr  *sdl.Texture
+	plyrDirnMrkr *sdl.Texture
 }
 
 const (
@@ -52,7 +53,7 @@ var maxEventBGRWid int32
 
 func NewUI(inputChan chan *game.Input, levelChan chan *game.Level) *ui {
 	ui := &ui{}
-	ui.winWidht, ui.winHeight = 700, 450
+	ui.winWidht, ui.winHeight = 1280, 720
 	ui.zoom = 3
 	ui.str2TexSmll = make(map[string]*sdl.Texture)
 	ui.str2TexMed = make(map[string]*sdl.Texture)
@@ -92,6 +93,9 @@ func NewUI(inputChan chan *game.Input, levelChan chan *game.Level) *ui {
 	ui.eventBackGr = ui.getSinglePixTex(sdl.Color{0, 0, 0, 100})
 	ui.eventBackGr.SetBlendMode(sdl.BLENDMODE_BLEND)
 	maxEventBGRWid = int32(float32(ui.winWidht) * 0.25)
+
+	ui.plyrDirnMrkr = ui.getSinglePixTex(sdl.Color{220, 0, 0, 100})
+	ui.eventBackGr.SetBlendMode(sdl.BLENDMODE_BLEND)
 
 	return ui
 }
@@ -305,67 +309,74 @@ func (ui *ui) Draw(level *game.Level) {
 	for y, row := range level.Map {
 		var r int
 		for x, tile := range row {
+			if tile.Rune == 0 || tile.Rune == 32 { //0 is space//32 is \t
+				continue
+			}
 			dstRect := sdl.Rect{int32(x*32)*ui.zoom - ui.centerX, int32(y*32)*ui.zoom - ui.centerY, 32 * ui.zoom, 32 * ui.zoom}
-			for t := range *ui.MiniAtlas {
-				if tile.Rune == (*ui.MiniAtlas)[t].symbol {
-					r = ui.r.Intn((*ui.MiniAtlas)[t].varCount)
-					//if level.Debug[game.Pos{int32(x), int32(y)}] {
-					//	(*ui.MiniAtlas)[t+r].tex.SetColorMod(128, 0, 0)
-					//} else {
-					//	(*ui.MiniAtlas)[t+r].tex.SetColorMod(255, 255, 255)
-					//}
-					switch tile.Rune {
-					case game.OpenDoor, game.StairUp:
-						//if tile.Visible {
-						(*ui.MiniAtlas)[12].tex.SetColorMod(255, 255, 255)
-						//} else {
-						//	(*ui.MiniAtlas)[12].tex.SetColorMod(100, 100, 100)
-						//}
-						if tile.Seen {
-							ui.renderer.Copy((*ui.MiniAtlas)[12].tex, nil, &dstRect)
-						}
-					}
-					if tile.Visible {
-						(*ui.MiniAtlas)[t+r].tex.SetColorMod(255, 255, 255)
-					} else {
-						(*ui.MiniAtlas)[t+r].tex.SetColorMod(100, 100, 100)
-					}
-					if tile.Seen {
-						ui.renderer.Copy((*ui.MiniAtlas)[t+r].tex, nil, &dstRect)
-					}
-					break
+
+			r = ui.r.Intn(ui.MiniAtlas[tile.Rune][0].varCount)
+			//if level.Debug[game.Pos{int32(x), int32(y)}] {
+			//	ui.MiniAtlas[tile.Rune][r].tex.SetColorMod(128, 0, 0)
+			//} else {
+			//	ui.MiniAtlas[tile.Rune][r].tex.SetColorMod(255, 255, 255)
+			//}
+			switch tile.Rune {
+			case game.OpenDoor, game.StairUp:
+				//if tile.Visible {
+				ui.MiniAtlas['.'][0].tex.SetColorMod(255, 255, 255)
+				//} else {
+				//	ui.MiniAtlas['.'][0].tex.SetColorMod(100, 100, 100)
+				//}
+				if tile.Seen {
+					ui.renderer.Copy(ui.MiniAtlas['.'][0].tex, nil, &dstRect)
 				}
+			}
+			if tile.Visible {
+				ui.MiniAtlas[tile.Rune][r].tex.SetColorMod(255, 255, 255)
+			} else {
+				//fmt.Println(r)
+				ui.MiniAtlas[tile.Rune][r].tex.SetColorMod(100, 100, 100)
+			}
+			if tile.Seen {
+				ui.renderer.Copy(ui.MiniAtlas[tile.Rune][r].tex, nil, &dstRect)
 			}
 		}
 	}
-	for t := range *ui.MiniAtlas {
-		if level.Player.Symbol == (*ui.MiniAtlas)[t].symbol {
-			ui.renderer.Copy((*ui.MiniAtlas)[t].tex, nil, &sdl.Rect{level.Player.X*ui.zoom - ui.centerX, level.Player.Y*ui.zoom - ui.centerY, 32 * ui.zoom, 32 * ui.zoom})
-			break
-		}
+	switch game.LookDirn {
+	case game.Up:
+		ui.renderer.Copy(ui.plyrDirnMrkr, nil, &sdl.Rect{(level.Player.X+14)*ui.zoom - ui.centerX, (level.Player.Y-7)*ui.zoom - ui.centerY, 4 * ui.zoom, 8 * ui.zoom})
+	case game.Down:
+		ui.renderer.Copy(ui.plyrDirnMrkr, nil, &sdl.Rect{(level.Player.X+14)*ui.zoom - ui.centerX, (level.Player.Y+30)*ui.zoom - ui.centerY, 4 * ui.zoom, 8 * ui.zoom})
+	case game.Left:
+		ui.renderer.Copy(ui.plyrDirnMrkr, nil, &sdl.Rect{(level.Player.X-4)*ui.zoom - ui.centerX, (level.Player.Y+14)*ui.zoom - ui.centerY, 8 * ui.zoom, 4 * ui.zoom})
+	case game.Right:
+		ui.renderer.Copy(ui.plyrDirnMrkr, nil, &sdl.Rect{(level.Player.X+30)*ui.zoom - ui.centerX, (level.Player.Y+14)*ui.zoom - ui.centerY, 8 * ui.zoom, 4 * ui.zoom})
 	}
+
+	for _, t := range level.Items {
+		dstRect := sdl.Rect{int32(t.X)*ui.zoom - ui.centerX, int32(t.Y)*ui.zoom - ui.centerY, 32 * ui.zoom, 32 * ui.zoom}
+		ui.renderer.Copy(ui.MiniAtlas[t.Symbol][0].tex, nil, &dstRect)
+	}
+
+	ui.renderer.Copy(ui.MiniAtlas[level.Player.Symbol][0].tex, nil, &sdl.Rect{level.Player.X*ui.zoom - ui.centerX, level.Player.Y*ui.zoom - ui.centerY, 32 * ui.zoom, 32 * ui.zoom})
+
 	for _, j := range level.Monsters {
 		dstRect := sdl.Rect{int32(j.X)*ui.zoom - ui.centerX, int32(j.Y)*ui.zoom - ui.centerY, 32 * ui.zoom, 32 * ui.zoom}
 		if !level.Map[j.Pos.Div32().Y][j.Pos.Div32().X].Visible {
 			continue
 		}
-		for t := range *ui.MiniAtlas {
-			if j.Symbol == (*ui.MiniAtlas)[t].symbol {
-				if j.Debug2 {
-					(*ui.MiniAtlas)[t].tex.SetColorMod(160, 160, 255)
-				} else if j.Debug {
-					(*ui.MiniAtlas)[t].tex.SetColorMod(255, 160, 160)
-				} else {
-					(*ui.MiniAtlas)[t].tex.SetColorMod(255, 255, 255)
-				}
-				ui.renderer.Copy((*ui.MiniAtlas)[t].tex, nil, &dstRect)
-				break
-			}
+		if j.Debug2 {
+			ui.MiniAtlas[j.Symbol][0].tex.SetColorMod(160, 160, 255)
+		} else if j.Debug {
+			ui.MiniAtlas[j.Symbol][0].tex.SetColorMod(255, 160, 160)
+		} else {
+			ui.MiniAtlas[j.Symbol][0].tex.SetColorMod(255, 255, 255)
 		}
+		ui.renderer.Copy(ui.MiniAtlas[j.Symbol][0].tex, nil, &dstRect)
 	}
 	//
 	ui.renderer.Copy(ui.eventBackGr, nil, &sdl.Rect{5, int32(float32(ui.winHeight)*0.67 - 5), maxEventBGRWid + 8, int32(float32(ui.winWidht) * 0.25)})
-	for i, j := len(level.Events)-1, 0; i > 0; i, j = i-1, j+1 {
+	for i, j := len(level.Events)-1, 0; i >= 0; i, j = i-1, j+1 {
 		tex := ui.stringToTexture(level.Events[i], sdl.Color{255, 20, 20, 0}, FontSmall)
 		_, _, w, h, _ := tex.Query()
 		ui.renderer.Copy(tex, nil, &sdl.Rect{10, int32(float32(ui.winHeight)*0.67 + float32(j*22)), w, h})
@@ -373,18 +384,30 @@ func (ui *ui) Draw(level *game.Level) {
 			maxEventBGRWid = w
 		}
 	}
+	k := len(level.Player.Items) - 1
+	for _, j := range level.Player.Items {
+		ui.renderer.Copy(ui.MiniAtlas[j.Symbol][0].tex, nil, &sdl.Rect{ui.winWidht - 64 - int32(k*48), 16, 48, 48})
+		k--
+	}
+	var i int32
+	for _, j := range level.Items {
+		if level.Player.Pos.Div32() == j.Pos.Div32() {
+			ui.renderer.Copy(ui.MiniAtlas[j.Symbol][0].tex, nil, &sdl.Rect{ui.winWidht - 64 - i*48, ui.winHeight - 64, 48, 48})
+			i++
+		}
+	}
 	//
 	ui.renderer.Present()
 	sdl.Delay(9)
 }
 
-func (ui *ui) idexAssignerToAtlas() *[]SpriteTexture {
+func (ui *ui) idexAssignerToAtlas() map[rune][]*SpriteTexture {
 	file, err := os.Open("UI2d/assets/tileSymbol-Index.txt")
 	if err != nil {
 		panic(err)
 	}
 	scanner := bufio.NewScanner(file)
-	newAtlas := make([]SpriteTexture, 0)
+	newAtlas := make(map[rune][]*SpriteTexture)
 	for scanner.Scan() {
 		line := scanner.Text()
 		line = strings.TrimSpace(line)
@@ -403,15 +426,19 @@ func (ui *ui) idexAssignerToAtlas() *[]SpriteTexture {
 		if err != nil {
 			panic(err)
 		}
+		newAtlas[tileRune] = make([]*SpriteTexture, v)
+		fmt.Printf("%c ", tileRune)
 		var z int64
 		for z = 0; z < v; z++ {
 			(*ui.textureAtlas)[y*64+(x+z)].symbol = tileRune
 			(*ui.textureAtlas)[y*64+(x+z)].varCount = int(v)
 			(*ui.textureAtlas)[y*64+(x+z)].index = int(z)
-			newAtlas = append(newAtlas, (*ui.textureAtlas)[y*64+(x+z)])
+			fmt.Printf(" %d", z)
+			newAtlas[tileRune][z] = &(*ui.textureAtlas)[y*64+(x+z)]
 		}
+		fmt.Println()
 	}
-	return &newAtlas
+	return newAtlas
 }
 func (ui *ui) Run() {
 	var lvle *game.Level
@@ -464,6 +491,9 @@ func (ui *ui) Run() {
 			} else if ui.keyBoard[sdl.SCANCODE_S].Changed && ui.keyBoard[sdl.SCANCODE_S].IsDown {
 				fmt.Println("search")
 				input = &game.Input{Typ: game.Search}
+			} else if ui.keyBoard[sdl.SCANCODE_P].IsDown {
+				fmt.Println("pick")
+				input = &game.Input{Typ: game.Pickup}
 			} else if ui.keyBoard[sdl.SCANCODE_KP_PLUS].Changed && ui.keyBoard[sdl.SCANCODE_KP_PLUS].IsDown {
 				ui.zoom++
 				ui.centerX = (lvle.Player.X*ui.zoom - ui.winWidht/2)
